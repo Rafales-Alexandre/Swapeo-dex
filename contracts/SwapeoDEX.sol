@@ -287,11 +287,11 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable {
 
         if (owedA > 0) {
     debtA[k][user] += owedA;
-    IERC20(tkns[0]).transfer(user, owedA);
+    IERC20(tkns[0]).safeTransfer(user, owedA);
 }
 if (owedB > 0) {
     debtB[k][user] += owedB;
-    IERC20(tkns[1]).transfer(user, owedB);
+    IERC20(tkns[1]).safeTransfer(user, owedB);
 }
     }
 }
