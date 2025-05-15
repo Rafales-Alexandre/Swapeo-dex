@@ -271,33 +271,34 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable {
     }
 
     function _distribute(bytes32 k, address user) private {
-        Pair storage p = pairs[k];
-        uint256 totalA = p.accFeeA;
-        uint256 totalB = p.accFeeB;
-        uint256 userBal = bal[k][user];
+    Pair storage p = pairs[k];
+    uint256 totalA = p.accFeeA;
+    uint256 totalB = p.accFeeB;
+    uint256 userBal = bal[k][user];
 
-        if (userBal > 0 && p.totLiq > 0) {
-            uint256 shareA = (totalA * userBal) / p.totLiq;
-            uint256 shareB = (totalB * userBal) / p.totLiq;
-            uint256 owedA = shareA > debtA[k][user]
-                ? shareA - debtA[k][user]
-                : 0;
-            uint256 owedB = shareB > debtB[k][user]
-                ? shareB - debtB[k][user]
-                : 0;
+    if (userBal > 0 && p.totLiq > 0) {
+        uint256 shareA = (totalA * userBal) / p.totLiq;
+        uint256 shareB = (totalB * userBal) / p.totLiq;
+        uint256 owedA = shareA > debtA[k][user] ? shareA - debtA[k][user] : 0;
+        uint256 owedB = shareB > debtB[k][user] ? shareB - debtB[k][user] : 0;
 
-            address[2] memory tkns = pairTokens[k];
+        address[2] memory tkns = pairTokens[k];
 
-            if (owedA > 0) {
-                debtA[k][user] += owedA;
-                _IERC20(tkns[0]).transfer(user, owedA);
-            }
-            if (owedB > 0) {
-                debtB[k][user] += owedB;
-                _IERC20(tkns[1]).transfer(user, owedB);
-            }
+        if (owedA > 0) {
+            debtA[k][user] += owedA;
+        }
+        if (owedB > 0) {
+            debtB[k][user] += owedB;
+        }
+
+        if (owedA > 0) {
+            _IERC20(tkns[0]).transfer(user, owedA);
+        }
+        if (owedB > 0) {
+            _IERC20(tkns[1]).transfer(user, owedB);
         }
     }
+}
 
     function distributeFees(
         address tA,

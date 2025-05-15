@@ -17,7 +17,7 @@ module.exports = {
     },
     hardhat: {
       forking: {
-       url: "https://worldchain-sepolia.g.alchemy.com/v2/_X9-xqyQt0AtMHxF6rewIiSZOH6mvOOD"
+       url: ""
       }
     },
   }
