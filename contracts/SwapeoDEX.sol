@@ -331,7 +331,7 @@ if (owedB > 0) {
         if (inT == outT) revert IdenticalTokens();
         if (amt == 0) revert InsufficientAmounts();
 
-        IERC20(inT).transferFrom(msg.sender, address(this), amt);
+        IERC20(inT).safeTransferFrom(msg.sender, address(this), amt);
 
         uint256 fee = (amt * ADD_NUM) / ADD_DEN;
         uint256 netAmt = amt - fee;
