@@ -4,7 +4,8 @@ pragma solidity 0.8.24;
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
-import {SafeERC20, IERC20 as _IERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 interface IUniswapV2Router02 {
     function swapExactTokensForTokens(
@@ -29,7 +30,7 @@ error UnexistingPair();
 error InvalidFee();
 
 contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable {
-    using SafeERC20 for _IERC20;
+    using SafeERC20 for IERC20;
     uint16 public swapFee;
     uint16 private constant FEE_DEN = 1000;
     uint16 private constant ADD_DEN = 1000;
@@ -124,8 +125,8 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable {
             pairTokens[k] = tkns;
         }
 
-        _IERC20(tA).safeTransferFrom(msg.sender, address(this), aA);
-        _IERC20(tB).safeTransferFrom(msg.sender, address(this), aB);
+        IERC20(tA).safeTransferFrom(msg.sender, address(this), aA);
+        IERC20(tB).safeTransferFrom(msg.sender, address(this), aB);
 
         Locals memory l = Locals({
             rA: p.rA,
@@ -189,8 +190,8 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable {
         address[2] memory tkns = pairTokens[k];
 
         if (liq == l.totLiq) {
-            aA = _IERC20(tkns[0]).balanceOf(address(this));
-            aB = _IERC20(tkns[1]).balanceOf(address(this));
+            aA = IERC20(tkns[0]).balanceOf(address(this));
+            aB = IERC20(tkns[1]).balanceOf(address(this));
         } else {
             aA = (liq * l.rA) / l.totLiq;
             aB = (liq * l.rB) / l.totLiq;
@@ -212,8 +213,8 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable {
             p.totLiq = l.totLiq;
         }
 
-        _IERC20(tkns[0]).safeTransfer(msg.sender, aA);
-        _IERC20(tkns[1]).safeTransfer(msg.sender, aB);
+        IERC20(tkns[0]).safeTransfer(msg.sender, aA);
+        IERC20(tkns[1]).safeTransfer(msg.sender, aB);
 
         emit Withdraw(msg.sender, tA, tB, aA, aB);
     }
@@ -230,7 +231,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable {
         Pair storage p = pairs[k];
 
         if (p.rA == 0 || p.rB == 0) revert UseForward();
-        _IERC20(inT).safeTransferFrom(msg.sender, address(this), amtIn);
+        IERC20(inT).safeTransferFrom(msg.sender, address(this), amtIn);
 
         Locals memory l = Locals({rA: p.rA, rB: p.rB, totLiq: 0, lastTs: 0});
 
@@ -260,7 +261,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable {
         p.rB = l.rB;
         p.t = uint32(block.timestamp);
 
-        _IERC20(outT).safeTransfer(msg.sender, outAmt);
+        IERC20(outT).safeTransfer(msg.sender, outAmt);
         emit Swap(msg.sender, inT, outT, amtIn, outAmt);
         return outAmt;
     }
@@ -286,11 +287,11 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable {
 
         if (owedA > 0) {
     debtA[k][user] += owedA;
-    _IERC20(tkns[0]).transfer(user, owedA);
+    IERC20(tkns[0]).transfer(user, owedA);
 }
 if (owedB > 0) {
     debtB[k][user] += owedB;
-    _IERC20(tkns[1]).transfer(user, owedB);
+    IERC20(tkns[1]).transfer(user, owedB);
 }
     }
 }
@@ -330,13 +331,13 @@ if (owedB > 0) {
         if (inT == outT) revert IdenticalTokens();
         if (amt == 0) revert InsufficientAmounts();
 
-        _IERC20(inT).transferFrom(msg.sender, address(this), amt);
+        IERC20(inT).transferFrom(msg.sender, address(this), amt);
 
         uint256 fee = (amt * ADD_NUM) / ADD_DEN;
         uint256 netAmt = amt - fee;
-        _IERC20(inT).transfer(owner(), fee);
-
-        _IERC20(inT).approve(address(router), netAmt);
+        IERC20(inT).safeTransfer(owner(), fee);
+        IERC20 token = IERC20(inT);
+        token.approve(address(router), netAmt);
 
         address[] memory path = new address[](2);
         path[0] = inT;
@@ -349,7 +350,7 @@ if (owedB > 0) {
             block.timestamp
         );
 
-        _IERC20(inT).approve(address(router), 0);
+        IERC20(inT).approve(address(router), 0);
 
         uint256 out = results[1];
         emit Forward(inT, outT, amt, out);
