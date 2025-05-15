@@ -223,62 +223,68 @@ await swapeo.connect(addr1).deposit(tokenA.target, tokenB.target, ethers.parseEt
     });
     
     it("test_withdraw_proportionalDistributionAmongProviders", async function () {
-        const ownerLp = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
-        const addr1Lp = await swapeo.getLPBalance(addr1.address, tokenA.target, tokenB.target);
-  
-        const ownerBalanceABefore = await tokenA.balanceOf(owner.address);
-        const ownerBalanceBBefore = await tokenB.balanceOf(owner.address);
-        const addr1BalanceABefore = await tokenA.balanceOf(addr1.address);
-        const addr1BalanceBBefore = await tokenB.balanceOf(addr1.address);
-  
-        let pairInfo = await swapeo.getPairInfo(tokenA.target, tokenB.target);
-        let reserveA_initial = pairInfo._reserveA;
-        let reserveB_initial = pairInfo._reserveB;
-        let totalLp_initial = pairInfo._totalLiquidity;
-  
-        expect(ownerLp).to.be.gt(0);
-        expect(addr1Lp).to.be.gt(0);
-        expect(totalLp_initial).to.equal(ownerLp + addr1Lp);
-  
-        const expectedOwnerA = (ownerLp * BigInt(reserveA_initial)) / BigInt(totalLp_initial);
-        const expectedOwnerB = (ownerLp * BigInt(reserveB_initial)) / BigInt(totalLp_initial);
-  
-        await expect(swapeo.withdraw(tokenA.target, tokenB.target, ownerLp))
-            .to.emit(swapeo, "Withdraw");
-  
-        const ownerBalanceAAfterWithdraw1 = await tokenA.balanceOf(owner.address);
-        const ownerBalanceBAfterWithdraw1 = await tokenB.balanceOf(owner.address);
-        const ownerReceivedA = ownerBalanceAAfterWithdraw1 - ownerBalanceABefore;
-        const ownerReceivedB = ownerBalanceBAfterWithdraw1 - ownerBalanceBBefore;
-  
-        const tolerance = BigInt(100);
-        expect(ownerReceivedA).to.be.closeTo(expectedOwnerA, tolerance, "Owner A amount mismatch");
-        expect(ownerReceivedB).to.be.closeTo(expectedOwnerB, tolerance, "Owner B amount mismatch");
-  
-        pairInfo = await swapeo.getPairInfo(tokenA.target, tokenB.target);
-        let reserveA_mid = pairInfo._reserveA;
-        let reserveB_mid = pairInfo._reserveB;
-        let totalLp_mid = pairInfo._totalLiquidity;
-  
-        expect(totalLp_mid).to.equal(addr1Lp);
-  
-        const expectedAddr1A = (addr1Lp * BigInt(reserveA_mid)) / BigInt(totalLp_mid);
-        const expectedAddr1B = (addr1Lp * BigInt(reserveB_mid)) / BigInt(totalLp_mid);
-  
-        await expect(swapeo.connect(addr1).withdraw(tokenA.target, tokenB.target, addr1Lp))
-          .to.emit(swapeo, "Withdraw");
-  
-        const addr1BalanceAAfterWithdraw2 = await tokenA.balanceOf(addr1.address);
-        const addr1BalanceBAfterWithdraw2 = await tokenB.balanceOf(addr1.address);
-        const addr1ReceivedA = addr1BalanceAAfterWithdraw2 - addr1BalanceABefore;
-        const addr1ReceivedB = addr1BalanceBAfterWithdraw2 - addr1BalanceBBefore;
-  
-        expect(addr1ReceivedA).to.be.closeTo(expectedAddr1A, tolerance, "Addr1 A amount mismatch");
-        expect(addr1ReceivedB).to.be.closeTo(expectedAddr1B, tolerance, "Addr1 B amount mismatch");
-  
-        pairInfo = await swapeo.getPairInfo(tokenA.target, tokenB.target);
-        expect(pairInfo._totalLiquidity).to.equal(0);
-      });
+      const ownerLp = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
+      const addr1Lp = await swapeo.getLPBalance(addr1.address, tokenA.target, tokenB.target);
+    
+      const ownerBalanceABefore = await tokenA.balanceOf(owner.address);
+      const ownerBalanceBBefore = await tokenB.balanceOf(owner.address);
+      const addr1BalanceABefore = await tokenA.balanceOf(addr1.address);
+      const addr1BalanceBBefore = await tokenB.balanceOf(addr1.address);
+    
+      let pairInfo = await swapeo.getPairInfo(tokenA.target, tokenB.target);
+      let reserveA_initial = pairInfo._reserveA;
+      let reserveB_initial = pairInfo._reserveB;
+      let totalLp_initial = pairInfo._totalLiquidity;
+    
+      expect(ownerLp).to.be.gt(0);
+      expect(addr1Lp).to.be.gt(0);
+      expect(totalLp_initial).to.equal(ownerLp + addr1Lp);
+    
+      const expectedOwnerA = (ownerLp * BigInt(reserveA_initial)) / BigInt(totalLp_initial);
+      const expectedOwnerB = (ownerLp * BigInt(reserveB_initial)) / BigInt(totalLp_initial);
+    
+      await expect(swapeo.withdraw(tokenA.target, tokenB.target, ownerLp))
+        .to.emit(swapeo, "Withdraw");
+    
+      const ownerBalanceAAfterWithdraw1 = await tokenA.balanceOf(owner.address);
+      const ownerBalanceBAfterWithdraw1 = await tokenB.balanceOf(owner.address);
+      const ownerReceivedA = ownerBalanceAAfterWithdraw1 - ownerBalanceABefore;
+      const ownerReceivedB = ownerBalanceBAfterWithdraw1 - ownerBalanceBBefore;
+    
+      const tolerance = BigInt(100);
+      expect(ownerReceivedA).to.be.closeTo(expectedOwnerA, tolerance, "Owner A amount mismatch");
+      expect(ownerReceivedB).to.be.closeTo(expectedOwnerB, tolerance, "Owner B amount mismatch");
+    
+      pairInfo = await swapeo.getPairInfo(tokenA.target, tokenB.target);
+      let reserveA_mid = pairInfo._reserveA;
+      let reserveB_mid = pairInfo._reserveB;
+      let totalLp_mid = pairInfo._totalLiquidity;
+    
+      expect(totalLp_mid).to.equal(addr1Lp);
+    
+      const contractA_before = await tokenA.balanceOf(swapeo.target);
+      const contractB_before = await tokenB.balanceOf(swapeo.target);
+    
+      await expect(swapeo.connect(addr1).withdraw(tokenA.target, tokenB.target, addr1Lp))
+        .to.emit(swapeo, "Withdraw");
+    
+      const contractA_after = await tokenA.balanceOf(swapeo.target);
+      const contractB_after = await tokenB.balanceOf(swapeo.target);
+    
+      const addr1BalanceAAfterWithdraw2 = await tokenA.balanceOf(addr1.address);
+      const addr1BalanceBAfterWithdraw2 = await tokenB.balanceOf(addr1.address);
+      const addr1ReceivedA = addr1BalanceAAfterWithdraw2 - addr1BalanceABefore;
+      const addr1ReceivedB = addr1BalanceBAfterWithdraw2 - addr1BalanceBBefore;
+    
+      expect(addr1ReceivedA).to.equal(contractA_before);
+      expect(addr1ReceivedB).to.equal(contractB_before);
+      expect(contractA_after).to.equal(0n);
+      expect(contractB_after).to.equal(0n);
+    
+      pairInfo = await swapeo.getPairInfo(tokenA.target, tokenB.target);
+      expect(pairInfo._totalLiquidity).to.equal(0);
+    });
+    
       
   });
   
