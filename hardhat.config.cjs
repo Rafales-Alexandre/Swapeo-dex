@@ -8,8 +8,9 @@ module.exports = {
     settings: {
       optimizer: {
         enabled: true,
-        runs: 200
-      }
+        runs: 999999,
+      },
+      viaIR: false
     }
   },
   networks: {
@@ -18,11 +19,11 @@ module.exports = {
     },
   },
   gasReporter: {
-    enabled: true,                 // active le gas reporter
-    currency: 'EUR',               // ou 'USD', comme tu veux
-    coinmarketcap: null,           // clé API pour prix réels (optionnel)
-    showTimeSpent: true,           // affiche le temps d’exécution
-    excludeContracts: [],          // à remplir si tu veux exclure certains contracts
-    src: "./contracts"             // chemin des contrats
+    enabled: true,                 
+    currency: 'EUR',               
+    coinmarketcap: null,           
+    showTimeSpent: true,           
+    excludeContracts: [],          
+    src: "./contracts"             
   }
 };
