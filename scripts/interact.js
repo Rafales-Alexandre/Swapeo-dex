@@ -77,7 +77,7 @@ async function main() {
   const beforeB2 = await tokenB.balanceOf(user1.address);
   await swapeo
     .connect(user1)
-    .forwardToUniswap(tokenAAddr, tokenBAddr, sim5, 0);
+    .swap(tokenAAddr, tokenBAddr, sim5, 0);
   const afterB2 = await tokenB.balanceOf(user1.address);
   console.log(`Forward output (B): ${afterB2 - beforeB2}\n`);
 
