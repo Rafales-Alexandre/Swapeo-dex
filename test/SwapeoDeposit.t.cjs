@@ -266,7 +266,7 @@ describe("SwapeoDeposit", function () {
       const pairKey = await swapeo.getKey(await tokenA.getAddress(), await tokenB.getAddress());
       const pair = await swapeo.pairs(pairKey);
     
-      expect(pair.totLiq).to.be.lt(ethers.parseEther("10"));
+      expect(pair.totalLiquidity).to.be.lt(ethers.parseEther("10"));
     });
     
   

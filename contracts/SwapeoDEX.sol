@@ -32,360 +32,357 @@ error InvalidFee();
 contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable {
     using SafeERC20 for IERC20;
     uint16 public swapFee;
-    uint16 private constant FEE_DEN = 1000;
-    uint16 private constant ADD_DEN = 1000;
-    uint16 private constant ADD_NUM = 5;
-    uint112 private constant MIN_LIQ = 1;
+    uint16 private constant FEE_DENOMINATOR = 1000;
+    uint16 private constant FORWARD_FEE_DENOMINATOR = 1000;
+    uint16 private constant FORWARD_FEE_NUMERATOR = 5;
+    uint112 private constant MINIMUM_LIQUIDITY = 1;
 
-    struct Pair {
-        uint112 rA;
-        uint112 rB;
-        uint32 t;
-        uint256 totLiq;
-        uint256 accFeeA;
-        uint256 accFeeB;
+    struct PairInfo {
+        uint112 reserveA;
+        uint112 reserveB;
+        uint32 timestamp;
+        uint256 totalLiquidity;
+        uint256 accumulatedFeeA;
+        uint256 accumulatedFeeB;
     }
-    mapping(bytes32 => Pair) public pairs;
-    mapping(bytes32 => mapping(address => uint256)) public bal;
-    mapping(bytes32 => mapping(address => uint256)) public debtA;
-    mapping(bytes32 => mapping(address => uint256)) public debtB;
-    mapping(bytes32 => mapping(address => bool)) private provider;
-    mapping(bytes32 => address[]) public providers;
+    mapping(bytes32 => PairInfo) public pairs;
+    mapping(bytes32 => mapping(address => uint256)) public liquidityBalances;
+    mapping(bytes32 => mapping(address => uint256)) public feeDebtA;
+    mapping(bytes32 => mapping(address => uint256)) public feeDebtB;
+    mapping(bytes32 => mapping(address => bool)) private isProvider;
+    mapping(bytes32 => address[]) public liquidityProviders;
 
     mapping(bytes32 => address[2]) private pairTokens;
 
     IUniswapV2Router02 public immutable router;
 
     event Deposit(
-        address indexed p,
-        address t0,
-        address t1,
-        uint256 a0,
-        uint256 a1,
-        uint256 liq
+        address indexed provider,
+        address tokenA,
+        address tokenB,
+        uint256 amountA,
+        uint256 amountB,
+        uint256 liquidityMinted
     );
     event Withdraw(
-        address indexed p,
-        address t0,
-        address t1,
-        uint256 a0,
-        uint256 a1
+        address indexed provider,
+        address tokenA,
+        address tokenB,
+        uint256 amountA,
+        uint256 amountB
     );
     event FeesDistributed(bytes32 indexed pairKey, uint256 feeA, uint256 feeB);
     event Swap(
-        address indexed u,
-        address inT,
-        address outT,
-        uint256 amtIn,
-        uint256 amtOut
+        address indexed user,
+        address inputToken,
+        address outputToken,
+        uint256 inputAmount,
+        uint256 outputAmount
     );
-    event Forward(address inT, address outT, uint256 amtIn, uint256 amtOut);
+    event Forward(address inputToken, address outputToken, uint256 inputAmount, uint256 outputAmount);
     event FeeUpdate(uint16 newFee);
 
-    struct Locals {
-        uint112 rA;
-        uint112 rB;
-        uint256 totLiq;
-        uint32 lastTs;
+    constructor(address _routerAddress, uint16 _initialSwapFee) Ownable(msg.sender) {
+        if (_routerAddress == address(0)) revert ZeroAddress();
+        if (_initialSwapFee > 50) revert InvalidFee();
+        router = IUniswapV2Router02(_routerAddress);
+        swapFee = _initialSwapFee;
     }
 
-    constructor(address _r, uint16 _f) Ownable(msg.sender) {
-        if (_r == address(0)) revert ZeroAddress();
-        if (_f > 50) revert InvalidFee();
-        router = IUniswapV2Router02(_r);
-        swapFee = _f;
+    function setSwapFee(uint16 _newSwapFee) external onlyOwner {
+        if (_newSwapFee > 50) revert InvalidFee();
+        swapFee = _newSwapFee;
+        emit FeeUpdate(_newSwapFee);
     }
 
-    function setSwapFee(uint16 f) external onlyOwner {
-        if (f > 50) revert InvalidFee();
-        swapFee = f;
-        emit FeeUpdate(f);
-    }
-
-    function _key(address a, address b) private pure returns (bytes32) {
-        return keccak256(abi.encodePacked(a < b ? a : b, a < b ? b : a));
+    function _generatePairKey(address tokenA, address tokenB) private pure returns (bytes32) {
+        return keccak256(abi.encodePacked(tokenA < tokenB ? tokenA : tokenB, tokenA < tokenB ? tokenB : tokenA));
     }
 
     function deposit(
-        address tA,
-        address tB,
-        uint256 aA,
-        uint256 aB
+        address tokenA,
+        address tokenB,
+        uint256 amountA,
+        uint256 amountB
     ) external whenNotPaused nonReentrant {
-        if (tA == address(0) || tB == address(0)) revert ZeroAddress();
-        if (tA == tB) revert IdenticalTokens();
-        if (aA == 0 || aB == 0) revert InsufficientAmounts();
+        if (tokenA == address(0) || tokenB == address(0)) revert ZeroAddress();
+        if (tokenA == tokenB) revert IdenticalTokens();
+        if (amountA == 0 || amountB == 0) revert InsufficientAmounts();
 
-        bytes32 k = _key(tA, tB);
-        Pair storage p = pairs[k];
+        bytes32 pairKey = _generatePairKey(tokenA, tokenB);
+        PairInfo storage pair = pairs[pairKey];
 
-        address[2] memory tkns = pairTokens[k];
-        if (tkns[0] == address(0)) {
-            (tkns[0], tkns[1]) = tA < tB ? (tA, tB) : (tB, tA);
-            pairTokens[k] = tkns;
+        address[2] memory tokens = pairTokens[pairKey];
+        if (tokens[0] == address(0)) {
+            (tokens[0], tokens[1]) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+            pairTokens[pairKey] = tokens;
         }
 
-        IERC20(tA).safeTransferFrom(msg.sender, address(this), aA);
-        IERC20(tB).safeTransferFrom(msg.sender, address(this), aB);
+        IERC20(tokenA).safeTransferFrom(msg.sender, address(this), amountA);
+        IERC20(tokenB).safeTransferFrom(msg.sender, address(this), amountB);
 
-        Locals memory l = Locals({
-            rA: p.rA,
-            rB: p.rB,
-            totLiq: p.totLiq,
-            lastTs: p.t
-        });
+        PairInfo memory pairCache = PairInfo({
+        reserveA: pair.reserveA,
+        reserveB: pair.reserveB,
+        totalLiquidity: pair.totalLiquidity,
+        timestamp: pair.timestamp,
+        accumulatedFeeA: 0,
+        accumulatedFeeB: 0
+    });
 
-        uint256 liq;
-        if (l.lastTs == 0) {
-            liq = _sqrt(aA * aB) - MIN_LIQ;
-            l.lastTs = uint32(block.timestamp);
+        uint256 liquidityMinted;
+        if (pairCache.timestamp == 0) {
+            liquidityMinted = _sqrt(amountA * amountB) - MINIMUM_LIQUIDITY;
+            pairCache.timestamp = uint32(block.timestamp);
         } else {
-            uint256 liqA = (aA * l.totLiq) / l.rA;
-            uint256 liqB = (aB * l.totLiq) / l.rB;
-            liq = liqA < liqB ? liqA : liqB;
+            uint256 liquidityFromA = (amountA * pairCache.totalLiquidity) / pairCache.reserveA;
+            uint256 liquidityFromB = (amountB * pairCache.totalLiquidity) / pairCache.reserveB;
+            liquidityMinted = liquidityFromA < liquidityFromB ? liquidityFromA : liquidityFromB;
         }
 
-        uint256 prevBal = bal[k][msg.sender];
-        if (prevBal > 0) _distribute(k, msg.sender);
+        uint256 prevBal = liquidityBalances[pairKey][msg.sender];
+        if (prevBal > 0) _distribute(pairKey, msg.sender);
 
-        bal[k][msg.sender] = prevBal + liq;
-        if (!provider[k][msg.sender]) {
-            provider[k][msg.sender] = true;
-            providers[k].push(msg.sender);
+        liquidityBalances[pairKey][msg.sender] = prevBal + liquidityMinted;
+        if (!isProvider[pairKey][msg.sender]) {
+            isProvider[pairKey][msg.sender] = true;
+            liquidityProviders[pairKey].push(msg.sender);
         }
 
-        l.rA += uint112(aA);
-        l.rB += uint112(aB);
-        l.totLiq += liq;
+        pairCache.reserveA += uint112(amountA);
+        pairCache.reserveB += uint112(amountB);
+        pairCache.totalLiquidity += liquidityMinted;
 
-        p.rA = l.rA;
-        p.rB = l.rB;
-        p.totLiq = l.totLiq;
-        p.t = l.lastTs;
+        pair.reserveA = pairCache.reserveA;
+        pair.reserveB = pairCache.reserveB;
+        pair.totalLiquidity = pairCache.totalLiquidity;
+        pair.timestamp = pairCache.timestamp;
 
-        emit Deposit(msg.sender, tA, tB, aA, aB, liq);
+        emit Deposit(msg.sender, tokenA, tokenB, amountA, amountB, liquidityMinted);
     }
 
     function withdraw(
-        address tA,
-        address tB,
-        uint256 liq
+        address tokenA,
+        address tokenB,
+        uint256 liquidityToWithdraw
     ) external whenNotPaused nonReentrant {
-        bytes32 k = _key(tA, tB);
-        Pair storage p = pairs[k];
+        bytes32 pairKey = _generatePairKey(tokenA, tokenB);
+        PairInfo storage pair = pairs[pairKey];
 
-        Locals memory l = Locals({
-            rA: p.rA,
-            rB: p.rB,
-            totLiq: p.totLiq,
-            lastTs: 0
+        PairInfo memory pairCache = PairInfo({
+            reserveA: pair.reserveA,
+            reserveB: pair.reserveB,
+            totalLiquidity: pair.totalLiquidity,
+            timestamp: pair.timestamp,
+            accumulatedFeeA: 0,
+            accumulatedFeeB: 0
         });
 
-        uint256 userBal = bal[k][msg.sender];
-        if (liq == 0 || liq > userBal) revert InsufficientLiquidity();
+        uint256 userLiquidity = liquidityBalances[pairKey][msg.sender];
+        if (liquidityToWithdraw == 0 || liquidityToWithdraw > userLiquidity) revert InsufficientLiquidity();
 
-        uint256 aA;
-        uint256 aB;
+        uint256 withdrawnAmountA;
+        uint256 withdrawnAmountB;
 
-        address[2] memory tkns = pairTokens[k];
+        address[2] memory tokens = pairTokens[pairKey];
 
-        if (liq == l.totLiq) {
-            aA = IERC20(tkns[0]).balanceOf(address(this));
-            aB = IERC20(tkns[1]).balanceOf(address(this));
+        if (liquidityToWithdraw == pairCache.totalLiquidity) {
+            withdrawnAmountA = IERC20(tokens[0]).balanceOf(address(this));
+            withdrawnAmountB = IERC20(tokens[1]).balanceOf(address(this));
         } else {
-            aA = (liq * l.rA) / l.totLiq;
-            aB = (liq * l.rB) / l.totLiq;
+            withdrawnAmountA = (liquidityToWithdraw * pairCache.reserveA) / pairCache.totalLiquidity;
+            withdrawnAmountB = (liquidityToWithdraw * pairCache.reserveB) / pairCache.totalLiquidity;
         }
 
-        _distribute(k, msg.sender);
-        bal[k][msg.sender] = userBal - liq;
+        _distribute(pairKey, msg.sender);
+        liquidityBalances[pairKey][msg.sender] = userLiquidity - liquidityToWithdraw;
 
-        if (liq == l.totLiq) {
-            p.rA = 0;
-            p.rB = 0;
-            p.totLiq = 0;
+        if (liquidityToWithdraw == pairCache.totalLiquidity) {
+            pair.reserveA = 0;
+            pair.reserveB = 0;
+            pair.totalLiquidity = 0;
         } else {
-            l.rA = uint112(l.rA - aA);
-            l.rB = uint112(l.rB - aB);
-            l.totLiq = l.totLiq - liq;
-            p.rA = l.rA;
-            p.rB = l.rB;
-            p.totLiq = l.totLiq;
+            pairCache.reserveA = uint112(pairCache.reserveA - withdrawnAmountA);
+            pairCache.reserveB = uint112(pairCache.reserveB - withdrawnAmountB);
+            pairCache.totalLiquidity = pairCache.totalLiquidity - liquidityToWithdraw;
+            pair.reserveA = pairCache.reserveA;
+            pair.reserveB = pairCache.reserveB;
+            pair.totalLiquidity = pairCache.totalLiquidity;
         }
 
-        IERC20(tkns[0]).safeTransfer(msg.sender, aA);
-        IERC20(tkns[1]).safeTransfer(msg.sender, aB);
+        IERC20(tokens[0]).safeTransfer(msg.sender, withdrawnAmountA);
+        IERC20(tokens[1]).safeTransfer(msg.sender, withdrawnAmountB);
 
-        emit Withdraw(msg.sender, tA, tB, aA, aB);
+        emit Withdraw(msg.sender, tokenA, tokenB, withdrawnAmountA, withdrawnAmountB);
     }
 
     function swap(
-        address inT,
-        address outT,
-        uint256 amtIn,
-        uint256 minOut
+        address inputToken,
+        address outputToken,
+        uint256 inputAmount,
+        uint256 minOutputAmount
     ) external whenNotPaused nonReentrant returns (uint256) {
-        if (inT == outT || amtIn == 0) revert InsufficientAmounts();
+        if (inputToken == address(0) || outputToken == address(0)) revert ZeroAddress();
+        if (inputToken == outputToken || inputAmount == 0) revert InsufficientAmounts();
 
-        bytes32 k = _key(inT, outT);
-        Pair storage p = pairs[k];
+        bytes32 pairKey = _generatePairKey(inputToken, outputToken);
+        PairInfo storage pair = pairs[pairKey];
 
-        if (p.rA == 0 || p.rB == 0) revert UseForward();
-        IERC20(inT).safeTransferFrom(msg.sender, address(this), amtIn);
+        if (pair.reserveA == 0 || pair.reserveB == 0){
+            return _forwardToUniswap(inputToken, outputToken, inputAmount, minOutputAmount);
+        }
+        IERC20(inputToken).safeTransferFrom(msg.sender, address(this), inputAmount);
 
-        Locals memory l = Locals({rA: p.rA, rB: p.rB, totLiq: 0, lastTs: 0});
+        PairInfo memory pairCache = PairInfo({reserveA: pair.reserveA, reserveB: pair.reserveB, totalLiquidity: 0, timestamp: 0, accumulatedFeeA: 0, accumulatedFeeB: 0});
 
-        uint256 feeAmt = (amtIn * swapFee) / FEE_DEN;
-        uint256 netInput = amtIn - feeAmt;
+        uint256 feeAmt = (inputAmount * swapFee) / FEE_DENOMINATOR;
+        uint256 netInputAmount = inputAmount - feeAmt;
 
-        address token0 = pairTokens[k][0];
-        uint256 reserveIn = inT == token0 ? l.rA : l.rB;
-        uint256 reserveOut = inT == token0 ? l.rB : l.rA;
+        address token0 = pairTokens[pairKey][0];
+        uint256 reserveIn = inputToken == token0 ? pairCache.reserveA : pairCache.reserveB;
+        uint256 reserveOut = inputToken == token0 ? pairCache.reserveB : pairCache.reserveA;
 
-        uint256 outAmt = reserveOut -
-            ((reserveIn * reserveOut) / (reserveIn + netInput));
+        uint256 outputAmount = reserveOut -
+            ((reserveIn * reserveOut) / (reserveIn + netInputAmount));
 
-        if (outAmt < minOut) revert HighSlippage();
+        if (outputAmount < minOutputAmount) revert HighSlippage();
 
-        if (inT == token0) {
-            l.rA = uint112(l.rA + netInput);
-            l.rB = uint112(l.rB - outAmt);
-            p.accFeeA += feeAmt;
+        if (inputToken == token0) {
+            pairCache.reserveA = uint112(pairCache.reserveA + netInputAmount);
+            pairCache.reserveB = uint112(pairCache.reserveB - outputAmount);
+            pair.accumulatedFeeA += feeAmt;
         } else {
-            l.rB = uint112(l.rB + netInput);
-            l.rA = uint112(l.rA - outAmt);
-            p.accFeeB += feeAmt;
+            pairCache.reserveB = uint112(pairCache.reserveB + netInputAmount);
+            pairCache.reserveA = uint112(pairCache.reserveA - outputAmount);
+            pair.accumulatedFeeB += feeAmt;
         }
 
-        p.rA = l.rA;
-        p.rB = l.rB;
-        p.t = uint32(block.timestamp);
+        pair.reserveA = pairCache.reserveA;
+        pair.reserveB = pairCache.reserveB;
+        pair.timestamp = uint32(block.timestamp);
 
-        IERC20(outT).safeTransfer(msg.sender, outAmt);
-        emit Swap(msg.sender, inT, outT, amtIn, outAmt);
-        return outAmt;
+        IERC20(outputToken).safeTransfer(msg.sender, outputAmount);
+        emit Swap(msg.sender, inputToken, outputToken, inputAmount, outputAmount);
+        return outputAmount;
     }
 
     function claimFees(address tA, address tB) external nonReentrant {
-        bytes32 k = _key(tA, tB);
-        _distribute(k, msg.sender);
+        bytes32 pairKey = _generatePairKey(tA, tB);
+        _distribute(pairKey, msg.sender);
     }
 
-    function _distribute(bytes32 k, address user) private {
-    Pair storage p = pairs[k];
-    uint256 totalA = p.accFeeA;
-    uint256 totalB = p.accFeeB;
-    uint256 userBal = bal[k][user];
+    function _distribute(bytes32 pairKey, address user) private {
+        PairInfo storage pair = pairs[pairKey];
+        uint256 totalA = pair.accumulatedFeeA;
+        uint256 totalB = pair.accumulatedFeeB;
+        uint256 userBal = liquidityBalances[pairKey][user];
 
-    if (userBal > 0 && p.totLiq > 0) {
-        uint256 shareA = (totalA * userBal) / p.totLiq;
-        uint256 shareB = (totalB * userBal) / p.totLiq;
-        uint256 owedA = shareA > debtA[k][user] ? shareA - debtA[k][user] : 0;
-        uint256 owedB = shareB > debtB[k][user] ? shareB - debtB[k][user] : 0;
+        if (userBal > 0 && pair.totalLiquidity > 0) {
+            uint256 shareA = (totalA * userBal) / pair.totalLiquidity;
+            uint256 shareB = (totalB * userBal) / pair.totalLiquidity;
+            uint256 owedA = shareA > feeDebtA[pairKey][user] ? shareA - feeDebtA[pairKey][user] : 0;
+            uint256 owedB = shareB > feeDebtB[pairKey][user] ? shareB - feeDebtB[pairKey][user] : 0;
 
-        address[2] memory tkns = pairTokens[k];
+            address[2] memory tkns = pairTokens[pairKey];
 
-        if (owedA > 0) {
-    debtA[k][user] += owedA;
-    IERC20(tkns[0]).safeTransfer(user, owedA);
-}
-if (owedB > 0) {
-    debtB[k][user] += owedB;
-    IERC20(tkns[1]).safeTransfer(user, owedB);
-}
+            if (owedA > 0) {
+                feeDebtA[pairKey][user] += owedA;
+                IERC20(tkns[0]).safeTransfer(user, owedA);
+            }
+        if (owedB > 0) {
+                feeDebtB[pairKey][user] += owedB;
+                IERC20(tkns[1]).safeTransfer(user, owedB);
+            }
+        }
     }
-}
 
     function distributeFees(
-        address tA,
-        address tB
+        address tokenA,
+        address tokenB
     ) external nonReentrant onlyOwner {
-        bytes32 k = _key(tA, tB);
-        Pair storage p = pairs[k];
+        bytes32 pairKey = _generatePairKey(tokenA, tokenB);
+        PairInfo storage pair = pairs[pairKey];
 
-        Locals memory l = Locals({rA: p.rA, rB: p.rB, totLiq: 0, lastTs: 0});
-        uint256 feesA = p.accFeeA;
-        uint256 feesB = p.accFeeB;
+        PairInfo memory pairCache = PairInfo({reserveA: pair.reserveA, reserveB: pair.reserveB, totalLiquidity: 0, timestamp: 0, accumulatedFeeA: 0, accumulatedFeeB: 0});
+        uint256 feesA = pair.accumulatedFeeA;
+        uint256 feesB = pair.accumulatedFeeB;
 
-        if (l.rA == 0 && l.rB == 0) revert UnexistingPair();
+        if (pairCache.reserveA == 0 && pairCache.reserveB == 0) revert UnexistingPair();
         if (feesA == 0 && feesB == 0) revert NoFees();
 
-        l.rA += uint112(feesA);
-        l.rB += uint112(feesB);
+        pairCache.reserveA += uint112(feesA);
+        pairCache.reserveB += uint112(feesB);
 
-        p.rA = l.rA;
-        p.rB = l.rB;
-        p.accFeeA = 0;
-        p.accFeeB = 0;
+        pair.reserveA = pairCache.reserveA;
+        pair.reserveB = pairCache.reserveB;
+        pair.accumulatedFeeA = 0;
+        pair.accumulatedFeeB = 0;
 
-        emit FeesDistributed(k, feesA, feesB);
+        emit FeesDistributed(pairKey, feesA, feesB);
     }
 
-    function forwardToUniswap(
-        address inT,
-        address outT,
-        uint256 amt,
-        uint256 minOut
-    ) external whenNotPaused nonReentrant returns (uint256) {
-        if (inT == address(0) || outT == address(0)) revert ZeroAddress();
-        if (inT == outT) revert IdenticalTokens();
-        if (amt == 0) revert InsufficientAmounts();
+    function _forwardToUniswap(
+        address inputToken,
+        address outputToken,
+        uint256 inputAmount,
+        uint256 minOutputAmount
+    ) internal whenNotPaused returns (uint256) {
 
-        IERC20(inT).safeTransferFrom(msg.sender, address(this), amt);
+        IERC20(inputToken).safeTransferFrom(msg.sender, address(this), inputAmount);
 
-        uint256 fee = (amt * ADD_NUM) / ADD_DEN;
-        uint256 netAmt = amt - fee;
-        IERC20(inT).safeTransfer(owner(), fee);
-        IERC20 token = IERC20(inT);
-        token.approve(address(router), netAmt);
+        uint256 fee = (inputAmount * FORWARD_FEE_NUMERATOR) / FORWARD_FEE_DENOMINATOR;
+        uint256 netInputAmount = inputAmount - fee;
+        IERC20(inputToken).safeTransfer(owner(), fee);
+        IERC20 token = IERC20(inputToken);
+        token.approve(address(router), netInputAmount);
 
         address[] memory path = new address[](2);
-        path[0] = inT;
-        path[1] = outT;
+        path[0] = inputToken;
+        path[1] = outputToken;
         uint256[] memory results = router.swapExactTokensForTokens(
-            netAmt,
-            minOut,
+            netInputAmount,
+            minOutputAmount,
             path,
             msg.sender,
             block.timestamp
         );
 
-        IERC20(inT).approve(address(router), 0);
+        IERC20(inputToken).approve(address(router), 0);
 
-        uint256 out = results[1];
-        emit Forward(inT, outT, amt, out);
-        return out;
+        uint256 outputAmount = results[1];
+        emit Forward(inputToken, outputToken, inputAmount, outputAmount);
+        return outputAmount;
     }
 
     function getAmountOut(
         uint256 amountIn,
-        address inT,
-        address outT
+        address inputToken,
+        address outputToken
     ) public view returns (uint256 amountOut) {
-        if (inT == address(0) || outT == address(0)) revert ZeroAddress();
-        if (inT == outT) revert IdenticalTokens();
+        if (inputToken == address(0) || outputToken == address(0)) revert ZeroAddress();
+        if (inputToken == outputToken) revert IdenticalTokens();
         if (amountIn == 0) revert InsufficientAmounts();
 
-        bytes32 k = _key(inT, outT);
-        Pair storage p = pairs[k];
-        if (p.rA == 0 || p.rB == 0) revert NoLiquidity();
+        bytes32 pairKey = _generatePairKey(inputToken, outputToken);
+        PairInfo storage pair = pairs[pairKey];
+        if (pair.reserveA == 0 || pair.reserveB == 0) revert NoLiquidity();
 
-        uint256 amountInWithFee = amountIn * (FEE_DEN - swapFee);
+        uint256 amountInWithFee = amountIn * (FEE_DENOMINATOR - swapFee);
 
-        address token0 = pairTokens[k][0];
+        address token0 = pairTokens[pairKey][0];
 
-        uint256 reserveIn = (inT == token0) ? p.rA : p.rB;
-        uint256 reserveOut = (inT == token0) ? p.rB : p.rA;
+        uint256 reserveIn = (inputToken == token0) ? pair.reserveA : pair.reserveB;
+        uint256 reserveOut = (inputToken == token0) ? pair.reserveB : pair.reserveA;
 
         uint256 numerator = amountInWithFee * reserveOut;
-        uint256 denominator = reserveIn * FEE_DEN + amountInWithFee;
+        uint256 denominator = reserveIn * FEE_DENOMINATOR + amountInWithFee;
 
         return numerator / denominator;
     }
 
     function getPairInfo(
-        address tA,
-        address tB
+        address tokenA,
+        address tokenB
     )
         external
         view
@@ -395,65 +392,65 @@ if (owedB > 0) {
             uint112 _reserveA,
             uint112 _reserveB,
             uint256 _totalLiquidity,
-            uint256 _accFeeA,
-            uint256 _accFeeB
+            uint256 _accumulatedFeeA,
+            uint256 _accumulatedFeeB
         )
     {
-        bytes32 k = _key(tA, tB);
-        Pair storage p = pairs[k];
-        address[2] memory tkns = pairTokens[k];
+        bytes32 pairKey = _generatePairKey(tokenA, tokenB);
+        PairInfo storage pair = pairs[pairKey];
+        address[2] memory tkns = pairTokens[pairKey];
 
         _token0 = tkns[0];
         _token1 = tkns[1];
-        _reserveA = p.rA;
-        _reserveB = p.rB;
-        _totalLiquidity = p.totLiq;
-        _accFeeA = p.accFeeA;
-        _accFeeB = p.accFeeB;
+        _reserveA = pair.reserveA;
+        _reserveB = pair.reserveB;
+        _totalLiquidity = pair.totalLiquidity;
+        _accumulatedFeeA = pair.accumulatedFeeA;
+        _accumulatedFeeB = pair.accumulatedFeeB;
     }
 
     function getLPBalance(
         address user,
-        address tA,
-        address tB
+        address tokenA,
+        address tokenB
     ) external view returns (uint256) {
-        bytes32 k = _key(tA, tB);
-        return bal[k][user];
+        bytes32 pairKey = _generatePairKey(tokenA, tokenB);
+        return liquidityBalances[pairKey][user];
     }
 
     function getLPProviders(
-        address tA,
-        address tB
+        address tokenA,
+        address tokenB
     ) external view returns (address[] memory) {
-        bytes32 k = _key(tA, tB);
-        return providers[k];
+        bytes32 pairKey = _generatePairKey(tokenA, tokenB);
+        return liquidityProviders[pairKey];
     }
 
-    function getKey(address a, address b) public pure returns (bytes32) {
-        return _key(a, b);
+    function getKey(address tokenA, address tokenB) public pure returns (bytes32) {
+        return _generatePairKey(tokenA, tokenB);
     }
 
     function getReserves(
-        address tA,
-        address tB
+        address tokenA,
+        address tokenB
     )
         external
         view
         returns (uint112 reserveA, uint112 reserveB, uint32 timestamp)
     {
-        bytes32 k = _key(tA, tB);
-        Pair storage p = pairs[k];
-        reserveA = p.rA;
-        reserveB = p.rB;
-        timestamp = p.t;
+        bytes32 pairKey = _generatePairKey(tokenA, tokenB);
+        PairInfo storage pair = pairs[pairKey];
+        reserveA = pair.reserveA;
+        reserveB = pair.reserveB;
+        timestamp = pair.timestamp;
     }
 
     function feesCollected(
         bytes32 pairKey
     ) external view returns (uint256 feeA, uint256 feeB) {
-        Pair storage p = pairs[pairKey];
-        feeA = p.accFeeA;
-        feeB = p.accFeeB;
+        PairInfo storage pair = pairs[pairKey];
+        feeA = pair.accumulatedFeeA;
+        feeB = pair.accumulatedFeeB;
     }
 
     function pause() external onlyOwner {
