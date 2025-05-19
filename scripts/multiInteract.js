@@ -99,7 +99,7 @@ async function main() {
 
     console.log(`Trader${i+1} forwards ${fwdIns[i]} A via Uniswap mock`);
     const before = await tokenB.balanceOf(tr.address);
-    await swapeo.connect(tr).forwardToUniswap(tokenAAddr, tokenBAddr, inAmt, 0);
+    await swapeo.connect(tr).swap(tokenAAddr, tokenBAddr, inAmt, 0);
     const after  = await tokenB.balanceOf(tr.address);
     console.log(`  Received B: ${after - before}`);
   }
