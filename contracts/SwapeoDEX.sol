@@ -7,21 +7,23 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IUniswapV2Router02.sol";
+import "./interfaces/ISwapeoDEX.sol";
 
 
-error ZeroAddress();
-error IdenticalTokens();
-error InsufficientAmounts();
-error InvalidRatio();
-error NoLiquidity();
-error InsufficientLiquidity();
-error HighSlippage();
-error UseForward();
-error NoFees();
-error UnexistingPair();
-error InvalidFee();
+contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable, ISwapeoDEX {
 
-contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable {
+    error ZeroAddress();
+    error IdenticalTokens();
+    error InsufficientAmounts();
+    error InvalidRatio();
+    error NoLiquidity();
+    error InsufficientLiquidity();
+    error HighSlippage();
+    error UseForward();
+    error NoFees();
+    error UnexistingPair();
+    error InvalidFee();
+
     using SafeERC20 for IERC20;
     uint16 public swapFee;
     uint16 private constant FEE_DENOMINATOR = 1000;
@@ -47,32 +49,6 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable {
     mapping(bytes32 => address[2]) private pairTokens;
 
     IUniswapV2Router02 public immutable router;
-
-    event Deposit(
-        address indexed provider,
-        address tokenA,
-        address tokenB,
-        uint256 amountA,
-        uint256 amountB,
-        uint256 liquidityMinted
-    );
-    event Withdraw(
-        address indexed provider,
-        address tokenA,
-        address tokenB,
-        uint256 amountA,
-        uint256 amountB
-    );
-    event FeesDistributed(bytes32 indexed pairKey, uint256 feeA, uint256 feeB);
-    event Swap(
-        address indexed user,
-        address inputToken,
-        address outputToken,
-        uint256 inputAmount,
-        uint256 outputAmount
-    );
-    event Forward(address inputToken, address outputToken, uint256 inputAmount, uint256 outputAmount);
-    event FeeUpdate(uint16 newFee);
 
     constructor(address _routerAddress, uint16 _initialSwapFee) Ownable(msg.sender) {
         if (_routerAddress == address(0)) revert ZeroAddress();
