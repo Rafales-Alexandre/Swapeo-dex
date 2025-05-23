@@ -97,9 +97,5 @@ interface ISwapeoDEX {
 
     function feesCollected(bytes32 pairKey) external view returns (uint256 feeA, uint256 feeB);
 
-    function pause() external;
-
-    function unpause() external;
-
     function setSwapFee(uint16 _newSwapFee) external;
 }

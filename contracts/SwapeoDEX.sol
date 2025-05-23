@@ -3,14 +3,13 @@ pragma solidity 0.8.24;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
-import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/ISwapeoDEX.sol";
 
 
-contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable, ISwapeoDEX {
+contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
 
     error ZeroAddress();
     error IdenticalTokens();
@@ -72,7 +71,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable, ISwapeoDEX {
         address tokenB,
         uint256 amountA,
         uint256 amountB
-    ) external whenNotPaused nonReentrant {
+    ) external nonReentrant {
         if (tokenA == address(0) || tokenB == address(0)) revert ZeroAddress();
         if (tokenA == tokenB) revert IdenticalTokens();
         if (amountA == 0 || amountB == 0) revert InsufficientAmounts();
@@ -133,7 +132,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable, ISwapeoDEX {
         address tokenA,
         address tokenB,
         uint256 liquidityToWithdraw
-    ) external whenNotPaused nonReentrant {
+    ) external nonReentrant {
         bytes32 pairKey = _generatePairKey(tokenA, tokenB);
         PairInfo storage pair = pairs[pairKey];
 
@@ -189,7 +188,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable, ISwapeoDEX {
         address outputToken,
         uint256 inputAmount,
         uint256 minOutputAmount
-    ) external whenNotPaused nonReentrant returns (uint256) {
+    ) external nonReentrant returns (uint256) {
         if (inputToken == address(0) || outputToken == address(0)) revert ZeroAddress();
         if (inputToken == outputToken || inputAmount == 0) revert InsufficientAmounts();
 
@@ -294,7 +293,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable, ISwapeoDEX {
         address outputToken,
         uint256 inputAmount,
         uint256 minOutputAmount
-    ) internal whenNotPaused returns (uint256) {
+    ) internal returns (uint256) {
 
         IERC20(inputToken).safeTransferFrom(msg.sender, address(this), inputAmount);
 
@@ -419,14 +418,6 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, Pausable, ISwapeoDEX {
         PairInfo storage pair = pairs[pairKey];
         feeA = pair.accumulatedFeeA;
         feeB = pair.accumulatedFeeB;
-    }
-
-    function pause() external onlyOwner {
-        _pause();
-    }
-
-    function unpause() external onlyOwner {
-        _unpause();
     }
 
     function _sqrt(uint256 y) private pure returns (uint256 z) {
