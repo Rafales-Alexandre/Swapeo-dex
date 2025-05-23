@@ -8,7 +8,6 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/ISwapeoDEX.sol";
 
-
 contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
     using SafeERC20 for IERC20;
 
@@ -20,7 +19,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         uint256 accumulatedFeeA;
         uint256 accumulatedFeeB;
     }
-    
+
     error ZeroAddress();
     error IdenticalTokens();
     error InsufficientAmounts();
@@ -41,17 +40,24 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
     uint112 private constant MINIMUM_LIQUIDITY = 1;
 
     mapping(bytes32 => PairInfo) public s_pairKeyToPairInfo;
-    mapping(bytes32 => mapping(address => uint256)) public s_pairKeyToProviderToLiquidity;
-    mapping(bytes32 => mapping(address => uint256)) public s_pairKeyToProviderToFeeDebtA;
-    mapping(bytes32 => mapping(address => uint256)) public s_pairKeyToProviderToFeeDebtB;
-    mapping(bytes32 => mapping(address => bool)) private s_pairKeyToProviderToIsActive;
+    mapping(bytes32 => mapping(address => uint256))
+        public s_pairKeyToProviderToLiquidity;
+    mapping(bytes32 => mapping(address => uint256))
+        public s_pairKeyToProviderToFeeDebtA;
+    mapping(bytes32 => mapping(address => uint256))
+        public s_pairKeyToProviderToFeeDebtB;
+    mapping(bytes32 => mapping(address => bool))
+        private s_pairKeyToProviderToIsActive;
     mapping(bytes32 => address[]) public s_pairKeyToProviders;
 
     mapping(bytes32 => address[2]) private s_pairKeyToTokens;
 
     IUniswapV2Router02 public immutable router;
 
-    constructor(address _routerAddress, uint16 _initialSwapFee) Ownable(msg.sender) {
+    constructor(
+        address _routerAddress,
+        uint16 _initialSwapFee
+    ) Ownable(msg.sender) {
         if (_routerAddress == address(0)) revert ZeroAddress();
         if (_initialSwapFee > 50) revert InvalidFee();
         router = IUniswapV2Router02(_routerAddress);
@@ -62,10 +68,6 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         if (_newSwapFee > 50) revert InvalidFee();
         swapFee = _newSwapFee;
         emit FeeUpdate(_newSwapFee);
-    }
-
-    function _generatePairKey(address tokenA, address tokenB) private pure returns (bytes32) {
-        return keccak256(abi.encodePacked(tokenA < tokenB ? tokenA : tokenB, tokenA < tokenB ? tokenB : tokenA));
     }
 
     function deposit(
@@ -83,7 +85,9 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
 
         address[2] memory tokens = s_pairKeyToTokens[pairKey];
         if (tokens[0] == address(0)) {
-            (tokens[0], tokens[1]) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+            (tokens[0], tokens[1]) = tokenA < tokenB
+                ? (tokenA, tokenB)
+                : (tokenB, tokenA);
             s_pairKeyToTokens[pairKey] = tokens;
         }
 
@@ -91,28 +95,34 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         IERC20(tokenB).safeTransferFrom(msg.sender, address(this), amountB);
 
         PairInfo memory pairCache = PairInfo({
-        reserveA: pair.reserveA,
-        reserveB: pair.reserveB,
-        totalLiquidity: pair.totalLiquidity,
-        timestamp: pair.timestamp,
-        accumulatedFeeA: 0,
-        accumulatedFeeB: 0
-    });
+            reserveA: pair.reserveA,
+            reserveB: pair.reserveB,
+            totalLiquidity: pair.totalLiquidity,
+            timestamp: pair.timestamp,
+            accumulatedFeeA: 0,
+            accumulatedFeeB: 0
+        });
 
         uint256 liquidityMinted;
         if (pairCache.timestamp == 0) {
             liquidityMinted = _sqrt(amountA * amountB) - MINIMUM_LIQUIDITY;
             pairCache.timestamp = uint32(block.timestamp);
         } else {
-            uint256 liquidityFromA = (amountA * pairCache.totalLiquidity) / pairCache.reserveA;
-            uint256 liquidityFromB = (amountB * pairCache.totalLiquidity) / pairCache.reserveB;
-            liquidityMinted = liquidityFromA < liquidityFromB ? liquidityFromA : liquidityFromB;
+            uint256 liquidityFromA = (amountA * pairCache.totalLiquidity) /
+                pairCache.reserveA;
+            uint256 liquidityFromB = (amountB * pairCache.totalLiquidity) /
+                pairCache.reserveB;
+            liquidityMinted = liquidityFromA < liquidityFromB
+                ? liquidityFromA
+                : liquidityFromB;
         }
 
         uint256 prevBal = s_pairKeyToProviderToLiquidity[pairKey][msg.sender];
         if (prevBal > 0) _distribute(pairKey, msg.sender);
 
-        s_pairKeyToProviderToLiquidity[pairKey][msg.sender] = prevBal + liquidityMinted;
+        s_pairKeyToProviderToLiquidity[pairKey][msg.sender] =
+            prevBal +
+            liquidityMinted;
         if (!s_pairKeyToProviderToIsActive[pairKey][msg.sender]) {
             s_pairKeyToProviderToIsActive[pairKey][msg.sender] = true;
             s_pairKeyToProviders[pairKey].push(msg.sender);
@@ -127,7 +137,14 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         pair.totalLiquidity = pairCache.totalLiquidity;
         pair.timestamp = pairCache.timestamp;
 
-        emit Deposit(msg.sender, tokenA, tokenB, amountA, amountB, liquidityMinted);
+        emit Deposit(
+            msg.sender,
+            tokenA,
+            tokenB,
+            amountA,
+            amountB,
+            liquidityMinted
+        );
     }
 
     function withdraw(
@@ -147,8 +164,11 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
             accumulatedFeeB: 0
         });
 
-        uint256 userLiquidity = s_pairKeyToProviderToLiquidity[pairKey][msg.sender];
-        if (liquidityToWithdraw == 0 || liquidityToWithdraw > userLiquidity) revert InsufficientLiquidity();
+        uint256 userLiquidity = s_pairKeyToProviderToLiquidity[pairKey][
+            msg.sender
+        ];
+        if (liquidityToWithdraw == 0 || liquidityToWithdraw > userLiquidity)
+            revert InsufficientLiquidity();
 
         uint256 withdrawnAmountA;
         uint256 withdrawnAmountB;
@@ -159,12 +179,18 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
             withdrawnAmountA = IERC20(tokens[0]).balanceOf(address(this));
             withdrawnAmountB = IERC20(tokens[1]).balanceOf(address(this));
         } else {
-            withdrawnAmountA = (liquidityToWithdraw * pairCache.reserveA) / pairCache.totalLiquidity;
-            withdrawnAmountB = (liquidityToWithdraw * pairCache.reserveB) / pairCache.totalLiquidity;
+            withdrawnAmountA =
+                (liquidityToWithdraw * pairCache.reserveA) /
+                pairCache.totalLiquidity;
+            withdrawnAmountB =
+                (liquidityToWithdraw * pairCache.reserveB) /
+                pairCache.totalLiquidity;
         }
 
         _distribute(pairKey, msg.sender);
-        s_pairKeyToProviderToLiquidity[pairKey][msg.sender] = userLiquidity - liquidityToWithdraw;
+        s_pairKeyToProviderToLiquidity[pairKey][msg.sender] =
+            userLiquidity -
+            liquidityToWithdraw;
 
         if (liquidityToWithdraw == pairCache.totalLiquidity) {
             pair.reserveA = 0;
@@ -173,7 +199,9 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         } else {
             pairCache.reserveA = uint112(pairCache.reserveA - withdrawnAmountA);
             pairCache.reserveB = uint112(pairCache.reserveB - withdrawnAmountB);
-            pairCache.totalLiquidity = pairCache.totalLiquidity - liquidityToWithdraw;
+            pairCache.totalLiquidity =
+                pairCache.totalLiquidity -
+                liquidityToWithdraw;
             pair.reserveA = pairCache.reserveA;
             pair.reserveB = pairCache.reserveB;
             pair.totalLiquidity = pairCache.totalLiquidity;
@@ -182,7 +210,13 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         IERC20(tokens[0]).safeTransfer(msg.sender, withdrawnAmountA);
         IERC20(tokens[1]).safeTransfer(msg.sender, withdrawnAmountB);
 
-        emit Withdraw(msg.sender, tokenA, tokenB, withdrawnAmountA, withdrawnAmountB);
+        emit Withdraw(
+            msg.sender,
+            tokenA,
+            tokenB,
+            withdrawnAmountA,
+            withdrawnAmountB
+        );
     }
 
     function swap(
@@ -191,25 +225,48 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         uint256 inputAmount,
         uint256 minOutputAmount
     ) external nonReentrant returns (uint256) {
-        if (inputToken == address(0) || outputToken == address(0)) revert ZeroAddress();
-        if (inputToken == outputToken || inputAmount == 0) revert InsufficientAmounts();
+        if (inputToken == address(0) || outputToken == address(0))
+            revert ZeroAddress();
+        if (inputToken == outputToken || inputAmount == 0)
+            revert InsufficientAmounts();
 
         bytes32 pairKey = _generatePairKey(inputToken, outputToken);
         PairInfo storage pair = s_pairKeyToPairInfo[pairKey];
 
-        if (pair.reserveA == 0 || pair.reserveB == 0){
-            return _forwardToUniswap(inputToken, outputToken, inputAmount, minOutputAmount);
+        if (pair.reserveA == 0 || pair.reserveB == 0) {
+            return
+                _forwardToUniswap(
+                    inputToken,
+                    outputToken,
+                    inputAmount,
+                    minOutputAmount
+                );
         }
-        IERC20(inputToken).safeTransferFrom(msg.sender, address(this), inputAmount);
+        IERC20(inputToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            inputAmount
+        );
 
-        PairInfo memory pairCache = PairInfo({reserveA: pair.reserveA, reserveB: pair.reserveB, totalLiquidity: 0, timestamp: 0, accumulatedFeeA: 0, accumulatedFeeB: 0});
+        PairInfo memory pairCache = PairInfo({
+            reserveA: pair.reserveA,
+            reserveB: pair.reserveB,
+            totalLiquidity: 0,
+            timestamp: 0,
+            accumulatedFeeA: 0,
+            accumulatedFeeB: 0
+        });
 
         uint256 feeAmt = (inputAmount * swapFee) / FEE_DENOMINATOR;
         uint256 netInputAmount = inputAmount - feeAmt;
 
         address token0 = s_pairKeyToTokens[pairKey][0];
-        uint256 reserveIn = inputToken == token0 ? pairCache.reserveA : pairCache.reserveB;
-        uint256 reserveOut = inputToken == token0 ? pairCache.reserveB : pairCache.reserveA;
+        uint256 reserveIn = inputToken == token0
+            ? pairCache.reserveA
+            : pairCache.reserveB;
+        uint256 reserveOut = inputToken == token0
+            ? pairCache.reserveB
+            : pairCache.reserveA;
 
         uint256 outputAmount = reserveOut -
             ((reserveIn * reserveOut) / (reserveIn + netInputAmount));
@@ -231,38 +288,19 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         pair.timestamp = uint32(block.timestamp);
 
         IERC20(outputToken).safeTransfer(msg.sender, outputAmount);
-        emit Swap(msg.sender, inputToken, outputToken, inputAmount, outputAmount);
+        emit Swap(
+            msg.sender,
+            inputToken,
+            outputToken,
+            inputAmount,
+            outputAmount
+        );
         return outputAmount;
     }
 
     function claimFees(address tA, address tB) external nonReentrant {
         bytes32 pairKey = _generatePairKey(tA, tB);
         _distribute(pairKey, msg.sender);
-    }
-
-    function _distribute(bytes32 pairKey, address user) private {
-        PairInfo storage pair = s_pairKeyToPairInfo[pairKey];
-        uint256 totalA = pair.accumulatedFeeA;
-        uint256 totalB = pair.accumulatedFeeB;
-        uint256 userBal = s_pairKeyToProviderToLiquidity[pairKey][user];
-
-        if (userBal > 0 && pair.totalLiquidity > 0) {
-            uint256 shareA = (totalA * userBal) / pair.totalLiquidity;
-            uint256 shareB = (totalB * userBal) / pair.totalLiquidity;
-            uint256 owedA = shareA > s_pairKeyToProviderToFeeDebtA[pairKey][user] ? shareA - s_pairKeyToProviderToFeeDebtA[pairKey][user] : 0;
-            uint256 owedB = shareB > s_pairKeyToProviderToFeeDebtB[pairKey][user] ? shareB - s_pairKeyToProviderToFeeDebtB[pairKey][user] : 0;
-
-            address[2] memory tkns = s_pairKeyToTokens[pairKey];
-
-            if (owedA > 0) {
-                s_pairKeyToProviderToFeeDebtA[pairKey][user] += owedA;
-                IERC20(tkns[0]).safeTransfer(user, owedA);
-            }
-        if (owedB > 0) {
-                s_pairKeyToProviderToFeeDebtB[pairKey][user] += owedB;
-                IERC20(tkns[1]).safeTransfer(user, owedB);
-            }
-        }
     }
 
     function distributeFees(
@@ -272,11 +310,19 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         bytes32 pairKey = _generatePairKey(tokenA, tokenB);
         PairInfo storage pair = s_pairKeyToPairInfo[pairKey];
 
-        PairInfo memory pairCache = PairInfo({reserveA: pair.reserveA, reserveB: pair.reserveB, totalLiquidity: 0, timestamp: 0, accumulatedFeeA: 0, accumulatedFeeB: 0});
+        PairInfo memory pairCache = PairInfo({
+            reserveA: pair.reserveA,
+            reserveB: pair.reserveB,
+            totalLiquidity: 0,
+            timestamp: 0,
+            accumulatedFeeA: 0,
+            accumulatedFeeB: 0
+        });
         uint256 feesA = pair.accumulatedFeeA;
         uint256 feesB = pair.accumulatedFeeB;
 
-        if (pairCache.reserveA == 0 && pairCache.reserveB == 0) revert UnexistingPair();
+        if (pairCache.reserveA == 0 && pairCache.reserveB == 0)
+            revert UnexistingPair();
         if (feesA == 0 && feesB == 0) revert NoFees();
 
         pairCache.reserveA += uint112(feesA);
@@ -288,65 +334,6 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         pair.accumulatedFeeB = 0;
 
         emit FeesDistributed(pairKey, feesA, feesB);
-    }
-
-    function _forwardToUniswap(
-        address inputToken,
-        address outputToken,
-        uint256 inputAmount,
-        uint256 minOutputAmount
-    ) internal returns (uint256) {
-
-        IERC20(inputToken).safeTransferFrom(msg.sender, address(this), inputAmount);
-
-        uint256 fee = (inputAmount * FORWARD_FEE_NUMERATOR) / FORWARD_FEE_DENOMINATOR;
-        uint256 netInputAmount = inputAmount - fee;
-        IERC20(inputToken).safeTransfer(owner(), fee);
-        IERC20 token = IERC20(inputToken);
-        token.approve(address(router), netInputAmount);
-
-        address[] memory path = new address[](2);
-        path[0] = inputToken;
-        path[1] = outputToken;
-        uint256[] memory results = router.swapExactTokensForTokens(
-            netInputAmount,
-            minOutputAmount,
-            path,
-            msg.sender,
-            block.timestamp
-        );
-
-        IERC20(inputToken).approve(address(router), 0);
-
-        uint256 outputAmount = results[1];
-        emit Forward(inputToken, outputToken, inputAmount, outputAmount);
-        return outputAmount;
-    }
-
-    function getAmountOut(
-        uint256 amountIn,
-        address inputToken,
-        address outputToken
-    ) public view returns (uint256 amountOut) {
-        if (inputToken == address(0) || outputToken == address(0)) revert ZeroAddress();
-        if (inputToken == outputToken) revert IdenticalTokens();
-        if (amountIn == 0) revert InsufficientAmounts();
-
-        bytes32 pairKey = _generatePairKey(inputToken, outputToken);
-        PairInfo storage pair = s_pairKeyToPairInfo[pairKey];
-        if (pair.reserveA == 0 || pair.reserveB == 0) revert NoLiquidity();
-
-        uint256 amountInWithFee = amountIn * (FEE_DENOMINATOR - swapFee);
-
-        address token0 = s_pairKeyToTokens[pairKey][0];
-
-        uint256 reserveIn = (inputToken == token0) ? pair.reserveA : pair.reserveB;
-        uint256 reserveOut = (inputToken == token0) ? pair.reserveB : pair.reserveA;
-
-        uint256 numerator = amountInWithFee * reserveOut;
-        uint256 denominator = reserveIn * FEE_DENOMINATOR + amountInWithFee;
-
-        return numerator / denominator;
     }
 
     function getPairInfo(
@@ -395,10 +382,6 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         return s_pairKeyToProviders[pairKey];
     }
 
-    function getKey(address tokenA, address tokenB) public pure returns (bytes32) {
-        return _generatePairKey(tokenA, tokenB);
-    }
-
     function getReserves(
         address tokenA,
         address tokenB
@@ -420,6 +403,125 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         PairInfo storage pair = s_pairKeyToPairInfo[pairKey];
         feeA = pair.accumulatedFeeA;
         feeB = pair.accumulatedFeeB;
+    }
+
+    function getKey(
+        address tokenA,
+        address tokenB
+    ) public pure returns (bytes32) {
+        return _generatePairKey(tokenA, tokenB);
+    }
+
+    function getAmountOut(
+        uint256 amountIn,
+        address inputToken,
+        address outputToken
+    ) public view returns (uint256 amountOut) {
+        if (inputToken == address(0) || outputToken == address(0))
+            revert ZeroAddress();
+        if (inputToken == outputToken) revert IdenticalTokens();
+        if (amountIn == 0) revert InsufficientAmounts();
+
+        bytes32 pairKey = _generatePairKey(inputToken, outputToken);
+        PairInfo storage pair = s_pairKeyToPairInfo[pairKey];
+        if (pair.reserveA == 0 || pair.reserveB == 0) revert NoLiquidity();
+
+        uint256 amountInWithFee = amountIn * (FEE_DENOMINATOR - swapFee);
+
+        address token0 = s_pairKeyToTokens[pairKey][0];
+
+        uint256 reserveIn = (inputToken == token0)
+            ? pair.reserveA
+            : pair.reserveB;
+        uint256 reserveOut = (inputToken == token0)
+            ? pair.reserveB
+            : pair.reserveA;
+
+        uint256 numerator = amountInWithFee * reserveOut;
+        uint256 denominator = reserveIn * FEE_DENOMINATOR + amountInWithFee;
+
+        return numerator / denominator;
+    }
+
+        function _forwardToUniswap(
+        address inputToken,
+        address outputToken,
+        uint256 inputAmount,
+        uint256 minOutputAmount
+    ) internal returns (uint256) {
+        IERC20(inputToken).safeTransferFrom(
+            msg.sender,
+            address(this),
+            inputAmount
+        );
+
+        uint256 fee = (inputAmount * FORWARD_FEE_NUMERATOR) /
+            FORWARD_FEE_DENOMINATOR;
+        uint256 netInputAmount = inputAmount - fee;
+        IERC20(inputToken).safeTransfer(owner(), fee);
+        IERC20 token = IERC20(inputToken);
+        token.approve(address(router), netInputAmount);
+
+        address[] memory path = new address[](2);
+        path[0] = inputToken;
+        path[1] = outputToken;
+        uint256[] memory results = router.swapExactTokensForTokens(
+            netInputAmount,
+            minOutputAmount,
+            path,
+            msg.sender,
+            block.timestamp
+        );
+
+        IERC20(inputToken).approve(address(router), 0);
+
+        uint256 outputAmount = results[1];
+        emit Forward(inputToken, outputToken, inputAmount, outputAmount);
+        return outputAmount;
+    }
+    
+    function _generatePairKey(
+        address tokenA,
+        address tokenB
+    ) private pure returns (bytes32) {
+        return
+            keccak256(
+                abi.encodePacked(
+                    tokenA < tokenB ? tokenA : tokenB,
+                    tokenA < tokenB ? tokenB : tokenA
+                )
+            );
+    }
+
+    function _distribute(bytes32 pairKey, address user) private {
+        PairInfo storage pair = s_pairKeyToPairInfo[pairKey];
+        uint256 totalA = pair.accumulatedFeeA;
+        uint256 totalB = pair.accumulatedFeeB;
+        uint256 userBal = s_pairKeyToProviderToLiquidity[pairKey][user];
+
+        if (userBal > 0 && pair.totalLiquidity > 0) {
+            uint256 shareA = (totalA * userBal) / pair.totalLiquidity;
+            uint256 shareB = (totalB * userBal) / pair.totalLiquidity;
+            uint256 owedA = shareA >
+                s_pairKeyToProviderToFeeDebtA[pairKey][user]
+                ? shareA - s_pairKeyToProviderToFeeDebtA[pairKey][user]
+                : 0;
+            uint256 owedB = shareB >
+                s_pairKeyToProviderToFeeDebtB[pairKey][user]
+                ? shareB - s_pairKeyToProviderToFeeDebtB[pairKey][user]
+                : 0;
+
+            address[2] memory tkns = s_pairKeyToTokens[pairKey];
+
+            if (owedA > 0) {
+                s_pairKeyToProviderToFeeDebtA[pairKey][user] += owedA;
+                IERC20(tkns[0]).safeTransfer(user, owedA);
+            }
+            if (owedB > 0) {
+                s_pairKeyToProviderToFeeDebtB[pairKey][user] += owedB;
+                IERC20(tkns[1]).safeTransfer(user, owedB);
+            }
+        }
     }
 
     function _sqrt(uint256 y) private pure returns (uint256 z) {
