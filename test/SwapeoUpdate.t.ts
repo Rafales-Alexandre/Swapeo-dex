@@ -1,21 +1,23 @@
-const { expect } = require("chai");
-const { ethers } = require("hardhat");
-const { pack } = require("@ethersproject/solidity");
-
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import { pack } from "@ethersproject/solidity";
+import { SwapeoDEX, MockERC20 } from "../typechain-types";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 describe("GetPairKey", function () {
-  let swapeo;
-  let tokenA;
-  let tokenB;
-  let tokenC;
-  let owner;
-  let addr1;
-  let addr2;
+  let swapeo: SwapeoDEX;
+  let tokenA: MockERC20;
+  let tokenB: MockERC20;
+  let tokenC: MockERC20;
+  let owner: HardhatEthersSigner;
+  let addr1: HardhatEthersSigner;
+  let addr2: HardhatEthersSigner;
 
-  function getPairKey(tokenA, tokenB) {
-    const [token0, token1] = tokenA.toLowerCase() < tokenB.toLowerCase()
-      ? [tokenA, tokenB]
-      : [tokenB, tokenA];
+  function getPairKey(tokenA: string, tokenB: string) {
+    const [token0, token1] =
+      tokenA.toLowerCase() < tokenB.toLowerCase()
+        ? [tokenA, tokenB]
+        : [tokenB, tokenA];
     return ethers.keccak256(pack(["address", "address"], [token0, token1]));
   }
 
@@ -23,13 +25,13 @@ describe("GetPairKey", function () {
     [owner, addr1, addr2] = await ethers.getSigners();
 
     const MockToken = await ethers.getContractFactory("MockERC20");
-    tokenA = await MockToken.deploy("Token A", "TKA", 18);
-    tokenB = await MockToken.deploy("Token B", "TKB", 18);
-    tokenC = await MockToken.deploy("Token C", "TKC", 18);
+    tokenA = (await MockToken.deploy("Token A", "TKA", 18)) as MockERC20;
+    tokenB = (await MockToken.deploy("Token B", "TKB", 18)) as MockERC20;
+    tokenC = (await MockToken.deploy("Token C", "TKC", 18)) as MockERC20;
 
     const uniswapRouterAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
     const SwapeoDEX = await ethers.getContractFactory("SwapeoDEX");
-    swapeo = await SwapeoDEX.deploy(uniswapRouterAddress, 3);
+    swapeo = (await SwapeoDEX.deploy(uniswapRouterAddress, 3)) as SwapeoDEX;
 
     await tokenA.waitForDeployment();
     await tokenB.waitForDeployment();
@@ -72,9 +74,9 @@ describe("GetPairKey", function () {
       const amountB = ethers.parseEther("10");
       const amountC = ethers.parseEther("10");
 
-      await tokenA.approve(swapeo.target, BigInt(amountA) * BigInt(2));
-      await tokenB.approve(swapeo.target, BigInt(amountB) * BigInt(2));
-      await tokenC.approve(swapeo.target, BigInt(amountC) * BigInt(2));
+      await tokenA.approve(swapeo.target, amountA * 2n);
+      await tokenB.approve(swapeo.target, amountB * 2n);
+      await tokenC.approve(swapeo.target, amountC * 2n);
 
       await swapeo.deposit(tokenA.target, tokenB.target, amountA, amountB);
       await swapeo.deposit(tokenA.target, tokenC.target, amountA, amountC);
@@ -90,39 +92,40 @@ describe("GetPairKey", function () {
     });
 
     it("test_getPairKey_pairKeysMappingIsSymmetric", async function () {
-        const amountA = ethers.parseEther("10");
-        const amountB = ethers.parseEther("10");
-      
-        await tokenA.approve(swapeo.target, amountA);
-        await tokenB.approve(swapeo.target, amountB);
-        await swapeo.deposit(tokenA.target, tokenB.target, amountA, amountB);
-      
-        const keyAB = await swapeo.getKey(tokenA.target, tokenB.target);
-        const keyBA = await swapeo.getKey(tokenB.target, tokenA.target);
-      
-        expect(keyAB).to.equal(keyBA);
-      });
+      const amountA = ethers.parseEther("10");
+      const amountB = ethers.parseEther("10");
 
-      it("test_getPairInfo_returnsOrderedTokensConsistentWithKey", async function () {
-        const amountA = ethers.parseEther("10");
-        const amountB = ethers.parseEther("10");
-      
-        await tokenA.approve(swapeo.target, amountA);
-        await tokenB.approve(swapeo.target, amountB);
-        await swapeo.deposit(tokenA.target, tokenB.target, amountA, amountB);
-      
-        const tokenAAddress = await tokenA.getAddress();
-        const tokenBAddress = await tokenB.getAddress();
-      
-        const [token0, token1] = tokenAAddress.toLowerCase() < tokenBAddress.toLowerCase()
+      await tokenA.approve(swapeo.target, amountA);
+      await tokenB.approve(swapeo.target, amountB);
+      await swapeo.deposit(tokenA.target, tokenB.target, amountA, amountB);
+
+      const keyAB = await swapeo.getKey(tokenA.target, tokenB.target);
+      const keyBA = await swapeo.getKey(tokenB.target, tokenA.target);
+
+      expect(keyAB).to.equal(keyBA);
+    });
+
+    it("test_getPairInfo_returnsOrderedTokensConsistentWithKey", async function () {
+      const amountA = ethers.parseEther("10");
+      const amountB = ethers.parseEther("10");
+
+      await tokenA.approve(swapeo.target, amountA);
+      await tokenB.approve(swapeo.target, amountB);
+      await swapeo.deposit(tokenA.target, tokenB.target, amountA, amountB);
+
+      const tokenAAddress = await tokenA.getAddress();
+      const tokenBAddress = await tokenB.getAddress();
+
+      const [token0, token1] =
+        tokenAAddress.toLowerCase() < tokenBAddress.toLowerCase()
           ? [tokenAAddress, tokenBAddress]
           : [tokenBAddress, tokenAAddress];
-      
-        const pairInfo = await swapeo.getPairInfo(tokenA.target, tokenB.target);
-      
-        expect(pairInfo[0].toLowerCase()).to.equal(token0.toLowerCase());
-        expect(pairInfo[1].toLowerCase()).to.equal(token1.toLowerCase());
-      });
+
+      const pairInfo = await swapeo.getPairInfo(tokenA.target, tokenB.target);
+
+      expect(pairInfo[0].toLowerCase()).to.equal(token0.toLowerCase());
+      expect(pairInfo[1].toLowerCase()).to.equal(token1.toLowerCase());
+    });
   });
 
   describe("UnhappyPath", function () {

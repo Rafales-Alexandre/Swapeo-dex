@@ -1,59 +1,56 @@
-const { expect } = require("chai");
-const { ethers } = require("hardhat");
+import { expect } from "chai";
+import { ethers } from "hardhat";
+import { SwapeoDEX, MockERC20 } from "../typechain-types";
+import { HardhatEthersSigner } from "@nomicfoundation/hardhat-ethers/signers";
 
 describe("SwapeoGetAmountOut", function () {
-    let swapeo;
-    let tokenA;
-    let tokenB;
-    let tokenC;
-    let owner;
-    let addr1;
-    let addr2;
-    let uniswapRouterAddress;
+    let swapeo: SwapeoDEX;
+    let tokenA: MockERC20;
+    let tokenB: MockERC20;
+    let tokenC: MockERC20;
+    let owner: HardhatEthersSigner;
+    let addr1: HardhatEthersSigner;
+    let addr2: HardhatEthersSigner;
+    let uniswapRouterAddress: string;
 
     beforeEach(async function () {
-        try {
-            [owner, addr1, addr2] = await ethers.getSigners();
+        [owner, addr1, addr2] = await ethers.getSigners();
 
-            const MockToken = await ethers.getContractFactory("MockERC20");
-            tokenA = await MockToken.deploy("Token A", "TKA", 18);
-            tokenB = await MockToken.deploy("Token B", "TKB", 18);
-            tokenC = await MockToken.deploy("Token C", "TKC", 18);
+        const MockToken = await ethers.getContractFactory("MockERC20");
+        tokenA = (await MockToken.deploy("Token A", "TKA", 18)) as MockERC20;
+        tokenB = (await MockToken.deploy("Token B", "TKB", 18)) as MockERC20;
+        tokenC = (await MockToken.deploy("Token C", "TKC", 18)) as MockERC20;
 
-            uniswapRouterAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
+        uniswapRouterAddress = "0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D";
 
-            const SwapeoDEX = await ethers.getContractFactory("SwapeoDEX");
-            swapeo = await SwapeoDEX.deploy(uniswapRouterAddress,3);
+        const SwapeoDEXFactory = await ethers.getContractFactory("SwapeoDEX");
+        swapeo = (await SwapeoDEXFactory.deploy(uniswapRouterAddress, 3)) as SwapeoDEX;
 
-            await tokenA.waitForDeployment();
-            await tokenB.waitForDeployment();
-            await tokenC.waitForDeployment();
-            await swapeo.waitForDeployment();
+        await tokenA.waitForDeployment();
+        await tokenB.waitForDeployment();
+        await tokenC.waitForDeployment();
+        await swapeo.waitForDeployment();
 
-            const amountA = ethers.parseEther("100");
-            const amountB = ethers.parseEther("200");
+        const amountA = ethers.parseEther("100");
+        const amountB = ethers.parseEther("200");
 
-            await tokenA.approve(swapeo.target, amountA);
-            await tokenB.approve(swapeo.target, amountB);
-            await swapeo.deposit(tokenA.target, tokenB.target, amountA, amountB);
-        } catch (error) {
-            console.error("Erreur lors du beforeEach :", error);
-            throw error;
-        }
+        await tokenA.approve(await swapeo.getAddress(), amountA);
+        await tokenB.approve(await swapeo.getAddress(), amountB);
+        await swapeo.deposit(await tokenA.getAddress(), await tokenB.getAddress(), amountA, amountB);
     });
 
     describe("Happy path", function () {
         it("test_getAmountOut_returnsExpectedAmount_simpleSwap", async function () {
             const amountIn = ethers.parseEther("1");
 
-            const [reserveA, reserveB] = await swapeo.getReserves(tokenA.target, tokenB.target);
+            const [reserveA, reserveB] = await swapeo.getReserves(await tokenA.getAddress(), await tokenB.getAddress());
 
-            const amountInWithFee = amountIn * BigInt(997);
+            const amountInWithFee = amountIn * 997n;
             const numerator = amountInWithFee * reserveB;
-            const denominator = reserveA * BigInt(1000) + amountInWithFee;
+            const denominator = reserveA * 1000n + amountInWithFee;
             const expectedAmountOut = numerator / denominator;
 
-            const amountOut = await swapeo.getAmountOut(amountIn, tokenA.target, tokenB.target);
+            const amountOut = await swapeo.getAmountOut(amountIn, await tokenA.getAddress(), await tokenB.getAddress());
 
             const tolerance = ethers.parseEther("0.001");
             expect(amountOut).to.be.closeTo(expectedAmountOut, tolerance);
@@ -61,22 +58,22 @@ describe("SwapeoGetAmountOut", function () {
 
         it("test_getAmountOut_returnsSameAmountInBothDirections_whenReservesEqual", async function () {
             const amount = ethers.parseEther("100");
-            await tokenA.approve(swapeo.target, amount);
-            await tokenC.approve(swapeo.target, amount);
-            await swapeo.deposit(tokenA.target, tokenC.target, amount, amount);
+            await tokenA.approve(await swapeo.getAddress(), amount);
+            await tokenC.approve(await swapeo.getAddress(), amount);
+            await swapeo.deposit(await tokenA.getAddress(), await tokenC.getAddress(), amount, amount);
 
             const amountIn = ethers.parseEther("1");
 
             const amountOutAtoC = await swapeo.getAmountOut(
                 amountIn,
-                tokenA.target,
-                tokenC.target
+                await tokenA.getAddress(),
+                await tokenC.getAddress()
             );
 
             const amountOutCtoA = await swapeo.getAmountOut(
                 amountIn,
-                tokenC.target,
-                tokenA.target
+                await tokenC.getAddress(),
+                await tokenA.getAddress()
             );
 
             expect(amountOutAtoC).to.equal(amountOutCtoA);
@@ -85,18 +82,18 @@ describe("SwapeoGetAmountOut", function () {
         it("test_getAmountOut_increasesProductXY_respectingAMMWithFees", async function () {
             const amountIn = ethers.parseEther("1");
 
-            const pairInfo = await swapeo.getPairInfo(tokenA.target, tokenB.target);
+            const pairInfo = await swapeo.getPairInfo(await tokenA.getAddress(), await tokenB.getAddress());
 
-            let reserveIn, reserveOut;
-            if (pairInfo._token0.toLowerCase() === tokenA.getAddress()) {
-                reserveIn  = pairInfo._reserveA;
+            let reserveIn: bigint, reserveOut: bigint;
+            if (pairInfo._token0.toLowerCase() === (await tokenA.getAddress()).toLowerCase()) {
+                reserveIn = pairInfo._reserveA;
                 reserveOut = pairInfo._reserveB;
             } else {
-                reserveIn  = pairInfo._reserveB;
+                reserveIn = pairInfo._reserveB;
                 reserveOut = pairInfo._reserveA;
             }
 
-            const amountOut = await swapeo.getAmountOut(amountIn, tokenA.target, tokenB.target);
+            const amountOut = await swapeo.getAmountOut(amountIn, await tokenA.getAddress(), await tokenB.getAddress());
 
             const amountInMinusFee = amountIn * 997n / 1000n;
             const newReserveIn = reserveIn + amountInMinusFee;
@@ -112,31 +109,25 @@ describe("SwapeoGetAmountOut", function () {
             expect(difference).to.be.lte(maxAllowedIncrease);
         });
 
-
-
-
-
-
-
         it("test_getAmountOut_outputsRoughlyProportional_forDifferentInputSizes", async function () {
             const smallAmount = ethers.parseEther("1");
             const largeAmount = ethers.parseEther("10");
 
             const smallOutput = await swapeo.getAmountOut(
                 smallAmount,
-                tokenA.target,
-                tokenB.target
+                await tokenA.getAddress(),
+                await tokenB.getAddress()
             );
 
             const largeOutput = await swapeo.getAmountOut(
                 largeAmount,
-                tokenA.target,
-                tokenB.target
+                await tokenA.getAddress(),
+                await tokenB.getAddress()
             );
 
-            const ratio = largeOutput * BigInt(100) / smallOutput;
-            expect(ratio).to.be.lt(BigInt(1000));
-            expect(ratio).to.be.gt(BigInt(900));
+            const ratio = largeOutput * 100n / smallOutput;
+            expect(ratio).to.be.lt(1000n);
+            expect(ratio).to.be.gt(900n);
         });
     });
 
@@ -145,27 +136,27 @@ describe("SwapeoGetAmountOut", function () {
             await expect(
                 swapeo.getAmountOut(
                     ethers.parseEther("1"),
-                    tokenA.target,
-                    tokenA.target
+                    await tokenA.getAddress(),
+                    await tokenA.getAddress()
                 )
             ).to.be.revertedWithCustomError(swapeo, "IdenticalTokens");
         });
 
         it("test_getAmountOut_revertsIfZeroAddressIsUsed_asInputOrOutput", async function () {
-            const zeroAddress = "0x0000000000000000000000000000000000000000";
+            const zeroAddress = ethers.ZeroAddress;
 
             await expect(
                 swapeo.getAmountOut(
                     ethers.parseEther("1"),
                     zeroAddress,
-                    tokenB.target
+                    await tokenB.getAddress()
                 )
             ).to.be.revertedWithCustomError(swapeo, "ZeroAddress");
 
             await expect(
                 swapeo.getAmountOut(
                     ethers.parseEther("1"),
-                    tokenA.target,
+                    await tokenA.getAddress(),
                     zeroAddress
                 )
             ).to.be.revertedWithCustomError(swapeo, "ZeroAddress");
@@ -175,8 +166,8 @@ describe("SwapeoGetAmountOut", function () {
             await expect(
                 swapeo.getAmountOut(
                     0,
-                    tokenA.target,
-                    tokenB.target
+                    await tokenA.getAddress(),
+                    await tokenB.getAddress()
                 )
             ).to.be.revertedWithCustomError(swapeo, "InsufficientAmounts");
         });
@@ -185,8 +176,8 @@ describe("SwapeoGetAmountOut", function () {
             await expect(
                 swapeo.getAmountOut(
                     ethers.parseEther("1"),
-                    tokenB.target,
-                    tokenC.target
+                    await tokenB.getAddress(),
+                    await tokenC.getAddress()
                 )
             ).to.be.revertedWithCustomError(swapeo, "NoLiquidity");
         });
@@ -194,44 +185,43 @@ describe("SwapeoGetAmountOut", function () {
         it("test_swap_revertsIfInputAmountTooLargeComparedToReserves", async function () {
             const hugeAmount = ethers.parseEther("1000000");
 
-            await tokenA.approve(swapeo.target, hugeAmount);
+            await tokenA.approve(await swapeo.getAddress(), hugeAmount);
 
             await expect(
-                swapeo.swap(tokenA.target, tokenB.target, hugeAmount, 0)
+                swapeo.swap(await tokenA.getAddress(), await tokenB.getAddress(), hugeAmount, 0)
             ).to.be.reverted;
         });
-
     });
 
     describe("Fee calculations", function () {
         it("test_getAmountOut_appliesSwapFeeCorrectly_0_3_percent", async function () {
             const amountIn = ethers.parseEther("100");
-            const [reserveA, reserveB] = await swapeo.getReserves(tokenA.target, tokenB.target);
+            const [reserveA, reserveB] = await swapeo.getReserves(await tokenA.getAddress(), await tokenB.getAddress());
 
             const amountOut = await swapeo.getAmountOut(
                 amountIn,
-                tokenA.target,
-                tokenB.target
+                await tokenA.getAddress(),
+                await tokenB.getAddress()
             );
 
-            const amountInWithFee = amountIn * BigInt(997);
+            const amountInWithFee = amountIn * 997n;
             const numerator = amountInWithFee * reserveB;
-            const denominator = reserveA * BigInt(1000) + amountInWithFee;
+            const denominator = reserveA * 1000n + amountInWithFee;
             const expectedAmountOut = numerator / denominator;
 
-            const tolerance = expectedAmountOut / BigInt(1000);
+            const tolerance = expectedAmountOut / 1000n;
             expect(amountOut).to.be.closeTo(expectedAmountOut, tolerance);
         });
 
         it("test_getAmountOut_isStableAcrossMultipleCalls_sameInputAmount", async function () {
             const amountIn = ethers.parseEther("1");
 
-            const amounts = [];
+            const amounts: bigint[] = [];
             for (let i = 0; i < 5; i++) {
                 const amountOut = await swapeo.getAmountOut(
                     amountIn,
-                    tokenA.target,
-                    tokenB.target
+                    await tokenA.getAddress(),
+                    await tokenB.getAddress()
                 );
                 amounts.push(amountOut);
             }
@@ -250,19 +240,19 @@ describe("SwapeoGetAmountOut", function () {
                 ethers.parseEther("50")
             ];
 
-            const outputs = [];
+            const outputs: bigint[] = [];
             for (const amount of amounts) {
                 const out = await swapeo.getAmountOut(
                     amount,
-                    tokenA.target,
-                    tokenB.target
+                    await tokenA.getAddress(),
+                    await tokenB.getAddress()
                 );
                 outputs.push(out);
             }
 
-            const ratios = [];
+            const ratios: bigint[] = [];
             for (let i = 0; i < outputs.length; i++) {
-                ratios.push(outputs[i] * BigInt(100) / (amounts[i] * BigInt(2)));
+                ratios.push(outputs[i] * 100n / (amounts[i] * 2n));
             }
 
             for (let i = 1; i < ratios.length; i++) {
@@ -276,14 +266,14 @@ describe("SwapeoGetAmountOut", function () {
 
             const tinyOutput = await swapeo.getAmountOut(
                 tinyAmount,
-                tokenA.target,
-                tokenB.target
+                await tokenA.getAddress(),
+                await tokenB.getAddress()
             );
 
             const smallOutput = await swapeo.getAmountOut(
                 smallAmount,
-                tokenA.target,
-                tokenB.target
+                await tokenA.getAddress(),
+                await tokenB.getAddress()
             );
 
             const tinyRate = (tinyOutput * 1_000_000n) / tinyAmount;
@@ -297,7 +287,7 @@ describe("SwapeoGetAmountOut", function () {
 
     describe("Fuzzing", function () {
         it("test_fuzz_getAmountOut_shouldNotRevertOnValidInput", async function () {
-            const [reserveA, reserveB] = await swapeo.getReserves(tokenA.target, tokenB.target);
+            const [reserveA, reserveB] = await swapeo.getReserves(await tokenA.getAddress(), await tokenB.getAddress());
 
             for (let i = 1; i <= 10; i++) {
                 const randomAmount = ethers.parseEther((Math.random() * 10 + 0.1).toFixed(3));
@@ -306,8 +296,8 @@ describe("SwapeoGetAmountOut", function () {
 
                 const result = await swapeo.getAmountOut(
                     randomAmount,
-                    tokenA.target,
-                    tokenB.target
+                    await tokenA.getAddress(),
+                    await tokenB.getAddress()
                 );
 
                 expect(result).to.be.a("bigint");
@@ -316,5 +306,4 @@ describe("SwapeoGetAmountOut", function () {
             }
         });
     });
-
-}); 
+});
