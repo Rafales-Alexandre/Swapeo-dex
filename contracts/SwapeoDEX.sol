@@ -83,13 +83,12 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         bytes32 pairKey = _generatePairKey(tokenA, tokenB);
         PairInfo storage pair = s_pairKeyToPairInfo[pairKey];
 
+        (address token0, address token1) = _sortTokens(tokenA, tokenB);
+
+        if (s_pairKeyToTokens[pairKey][0] == address(0)) {
+        s_pairKeyToTokens[pairKey] = [token0, token1];
+    }
         address[2] memory tokens = s_pairKeyToTokens[pairKey];
-        if (tokens[0] == address(0)) {
-            (tokens[0], tokens[1]) = tokenA < tokenB
-                ? (tokenA, tokenB)
-                : (tokenB, tokenA);
-            s_pairKeyToTokens[pairKey] = tokens;
-        }
 
         IERC20(tokenA).safeTransferFrom(msg.sender, address(this), amountA);
         IERC20(tokenB).safeTransferFrom(msg.sender, address(this), amountB);
@@ -276,11 +275,11 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         if (inputToken == token0) {
             pairCache.reserveA = uint112(pairCache.reserveA + netInputAmount);
             pairCache.reserveB = uint112(pairCache.reserveB - outputAmount);
-            pair.accumulatedFeeA += feeAmt;
+            pair.accumulatedFeeA += uint96(feeAmt);
         } else {
             pairCache.reserveB = uint112(pairCache.reserveB + netInputAmount);
             pairCache.reserveA = uint112(pairCache.reserveA - outputAmount);
-            pair.accumulatedFeeB += feeAmt;
+            pair.accumulatedFeeB += uint96(feeAmt);
         }
 
         pair.reserveA = pairCache.reserveA;
@@ -484,11 +483,12 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         address tokenA,
         address tokenB
     ) private pure returns (bytes32) {
+        (address token0, address token1) = _sortTokens(tokenA, tokenB);
         return
             keccak256(
                 abi.encodePacked(
-                    tokenA < tokenB ? tokenA : tokenB,
-                    tokenA < tokenB ? tokenB : tokenA
+                    token0,
+                    token1
                 )
             );
     }
@@ -523,6 +523,11 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
             }
         }
     }
+
+    function _sortTokens(address tokenA, address tokenB) private pure returns (address token0, address token1) {
+    require(tokenA != tokenB, "Identical tokens");
+    (token0, token1) = tokenA < tokenB ? (tokenA, tokenB) : (tokenB, tokenA);
+}
 
     function _sqrt(uint256 y) private pure returns (uint256 z) {
         z = y;
