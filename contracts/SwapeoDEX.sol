@@ -15,9 +15,9 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         uint112 reserveA;
         uint112 reserveB;
         uint32 timestamp;
+        uint96 accumulatedFeeA;
+        uint96  accumulatedFeeB;
         uint256 totalLiquidity;
-        uint256 accumulatedFeeA;
-        uint256 accumulatedFeeB;
     }
 
     error ZeroAddress();
@@ -479,7 +479,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         emit Forward(inputToken, outputToken, inputAmount, outputAmount);
         return outputAmount;
     }
-    
+
     function _generatePairKey(
         address tokenA,
         address tokenB
