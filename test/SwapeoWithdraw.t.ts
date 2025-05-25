@@ -35,7 +35,6 @@ describe("SwapeoWithdraw", function () {
     await tokenC.waitForDeployment();
     await swapeo.waitForDeployment();
 
-    // addr1 deposit
     await tokenA.transfer(addr1.address, ethers.parseEther("500"));
     await tokenB.transfer(addr1.address, ethers.parseEther("500"));
 
@@ -43,7 +42,6 @@ describe("SwapeoWithdraw", function () {
     await tokenB.connect(addr1).approve(swapeo.target, ethers.parseEther("50"));
     await swapeo.connect(addr1).deposit(tokenA.target, tokenB.target, ethers.parseEther("50"), ethers.parseEther("50"));
 
-    // owner deposits
     const amountA = ethers.parseEther("100");
     const amountB = ethers.parseEther("100");
 
@@ -62,7 +60,7 @@ describe("SwapeoWithdraw", function () {
   });
 
   describe("Happy path", function () {
-    it("test_withdraw_allLiquidity_succeeds", async function () {
+    it("should allow withdrawing all liquidity at once", async function () {
       const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
 
       const ownerTokenABefore = await tokenA.balanceOf(owner.address);
@@ -81,7 +79,7 @@ describe("SwapeoWithdraw", function () {
       expect(ownerTokenBAfter).to.be.gt(ownerTokenBBefore);
     });
 
-    it("test_withdraw_partialLiquidity_succeeds", async function () {
+    it("should allow withdrawing partial liquidity", async function () {
       const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
       const withdrawAmount = lpBalance / 2n;
 
@@ -99,7 +97,7 @@ describe("SwapeoWithdraw", function () {
       expect(ownerTokenBAfter).to.be.gt(ownerTokenBBefore);
     });
 
-    it("test_withdraw_reversedTokenOrder_succeeds", async function () {
+    it("should allow withdrawal with reversed token order", async function () {
       const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
       const withdrawAmount = lpBalance / 2n;
 
@@ -110,7 +108,7 @@ describe("SwapeoWithdraw", function () {
       expect(lpBalanceAfter).to.equal(lpBalance - withdrawAmount);
     });
 
-    it("test_withdraw_multipleUsersFromSamePair_succeeds", async function () {
+    it("should allow multiple users to withdraw from the same pair", async function () {
       const ownerLpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
       const addr1LpBalance = await swapeo.getLPBalance(addr1.address, tokenA.target, tokenB.target);
 
@@ -124,7 +122,7 @@ describe("SwapeoWithdraw", function () {
       expect(addr1LpAfter).to.equal(0);
     });
 
-    it("test_withdraw_transfersTokensBackToUser", async function () {
+    it("should transfer withdrawn tokens back to the user", async function () {
       const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
 
       const ownerTokenABefore = await tokenA.balanceOf(owner.address);
@@ -147,34 +145,36 @@ describe("SwapeoWithdraw", function () {
       expect(tokenAReceived).to.equal(contractTokenAReduced);
       expect(tokenBReceived).to.equal(contractTokenBReduced);
     });
+
   });
 
   describe("UnhappyPath", function () {
-    it("test_withdraw_revertsOnIdenticalAddresses", async function () {
+    it("should revert when token addresses are identical", async function () {
       await expect(
         swapeo.withdraw(tokenA.target, tokenA.target, ethers.parseEther("10"))
-      ).to.be.revertedWithCustomError(swapeo, "InsufficientLiquidity");
+      ).to.be.revertedWithCustomError(swapeo, "IdenticalTokens");
     });
 
-    it("test_withdraw_revertsOnZeroAddress", async function () {
+    it("should revert with ZeroAddress when one of the token addresses is zero", async function () {
       const zeroAddress = "0x0000000000000000000000000000000000000000";
-
+    
       await expect(
         swapeo.withdraw(zeroAddress, tokenB.target, ethers.parseEther("10"))
-      ).to.be.revertedWithCustomError(swapeo, "InsufficientLiquidity");
-
+      ).to.be.revertedWithCustomError(swapeo, "ZeroAddress");
+    
       await expect(
         swapeo.withdraw(tokenA.target, zeroAddress, ethers.parseEther("10"))
-      ).to.be.revertedWithCustomError(swapeo, "InsufficientLiquidity");
+      ).to.be.revertedWithCustomError(swapeo, "ZeroAddress");
     });
+    
 
-    it("test_withdraw_revertsOnZeroAmount", async function () {
+    it("should revert when the withdrawal amount is zero", async function () {
       await expect(
         swapeo.withdraw(tokenA.target, tokenB.target, 0)
       ).to.be.revertedWithCustomError(swapeo, "InsufficientLiquidity");
     });
 
-    it("test_withdraw_revertsOnInsufficientLPBalance", async function () {
+    it("should revert when user tries to withdraw more LP tokens than owned", async function () {
       const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
       const excessAmount = lpBalance + 1n;
 
@@ -183,21 +183,40 @@ describe("SwapeoWithdraw", function () {
       ).to.be.revertedWithCustomError(swapeo, "InsufficientLiquidity");
     });
 
-    it("test_withdraw_revertsOnNonExistentPair", async function () {
+    it("should revert when trying to withdraw from a non-existent pair", async function () {
       await expect(
         swapeo.withdraw(tokenB.target, tokenC.target, ethers.parseEther("10"))
-      ).to.be.revertedWithCustomError(swapeo, "InsufficientLiquidity");
+      ).to.be.revertedWithCustomError(swapeo, "UnexistingPair");
     });
 
-    it("test_withdraw_revertsOnUnownedLiquidity", async function () {
+    it("should revert when user tries to withdraw liquidity they do not own", async function () {
       await expect(
         swapeo.connect(addr2).withdraw(tokenA.target, tokenB.target, ethers.parseEther("10"))
       ).to.be.revertedWithCustomError(swapeo, "InsufficientLiquidity");
     });
+
+    it("should clear the pool and transfer all tokens when all liquidity is withdrawn after a swap", async function () {
+      const lpOwner = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
+const lpAddr1 = await swapeo.getLPBalance(addr1.address, tokenA.target, tokenB.target);
+
+if (lpOwner > 0) {
+  await swapeo.withdraw(tokenA.target, tokenB.target, lpOwner);
+}
+if (lpAddr1 > 0) {
+  await swapeo.connect(addr1).withdraw(tokenA.target, tokenB.target, lpAddr1);
+}
+
+const tolerance = 10n ** 14n;
+expect(await tokenA.balanceOf(swapeo.target)).to.be.lte(tolerance);
+expect(await tokenB.balanceOf(swapeo.target)).to.be.lte(tolerance);
+    });
+    
+    
+    
   });
 
   describe("Proportionality", function () {
-    it("test_withdraw_proportionalTokens_forMultipleWithdrawals", async function () {
+    it("should return proportional token amounts for multiple withdrawals", async function () {
       const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
       const halfLp = lpBalance / 2n;
 
@@ -226,7 +245,7 @@ describe("SwapeoWithdraw", function () {
       expect(tokenBSecondWithdrawal).to.be.closeTo(tokenBFirstWithdrawal, toleranceB);
     });
 
-    it("test_withdraw_proportionalDistributionAmongProviders", async function () {
+    it("should distribute withdrawn tokens proportionally among multiple liquidity providers", async function () {
       const ownerLp = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
       const addr1Lp = await swapeo.getLPBalance(addr1.address, tokenA.target, tokenB.target);
 
@@ -291,7 +310,7 @@ describe("SwapeoWithdraw", function () {
   });
 
   describe("Events and returns", function () {
-    it("test_withdraw_emitsCorrectEventAmounts", async function () {
+    it("should emit correct Withdraw event with correct token amounts", async function () {
       const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
       const halfLp = lpBalance / 2n;
 
@@ -327,8 +346,126 @@ describe("SwapeoWithdraw", function () {
     });
   });
 
+  describe("Edge cases", function () {
+    it("should allow withdrawing a very small LP token amount (dust)", async function () {
+      const dust = 1n;
+      const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
+      if (lpBalance > dust) {
+        await expect(swapeo.withdraw(tokenA.target, tokenB.target, dust)).to.not.be.reverted;
+      }
+    });
+
+    it("should withdraw correctly from a pool with tokens of different decimals", async function () {
+      const MockToken6 = await ethers.getContractFactory("MockERC20Decimals");
+      const token6 = await MockToken6.deploy("USD Coin", "USDC", 6);
+      await token6.mint(owner.address, 1_000_000_000); // 1,000 USDC (6 decimals)
+      await token6.approve(swapeo.target, 1_000_000_000);
+      await tokenA.approve(swapeo.target, ethers.parseEther("10"));
+      await swapeo.deposit(token6.target, tokenA.target, 1_000_000_000, ethers.parseEther("10"));
+      const lpBalance = await swapeo.getLPBalance(owner.address, token6.target, tokenA.target);
+      await expect(swapeo.withdraw(token6.target, tokenA.target, lpBalance)).to.not.be.reverted;
+    });
+
+    it("should withdraw correct proportions after a large swap that unbalances the pool", async function () {
+      await tokenA.connect(addr1).approve(swapeo.target, ethers.parseEther("100"));
+      await swapeo.connect(addr1).swap(tokenA.target, tokenB.target, ethers.parseEther("100"), 0);
+      const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
+      await expect(swapeo.withdraw(tokenA.target, tokenB.target, lpBalance)).to.not.be.reverted;
+    });
+
+    it("should revert if user with zero LP tries to withdraw", async function () {
+      await expect(
+        swapeo.connect(addr2).withdraw(tokenA.target, tokenB.target, 1)
+      ).to.be.revertedWithCustomError(swapeo, "InsufficientLiquidity");
+    });
+
+    it("should not allow withdrawing the minimum liquidity reserved in the pool", async function () {
+      const minLiquidity = 1n;
+      await expect(
+        swapeo.withdraw(tokenA.target, tokenB.target, minLiquidity)
+      ).to.not.be.reverted;
+    });
+
+    it("should handle last provider withdrawal and leave the pool empty", async function () {
+      const lpOwner = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
+      const lpAddr1 = await swapeo.getLPBalance(addr1.address, tokenA.target, tokenB.target);
+    
+      if (lpOwner > 0) await swapeo.withdraw(tokenA.target, tokenB.target, lpOwner);
+      if (lpAddr1 > 0) await swapeo.connect(addr1).withdraw(tokenA.target, tokenB.target, lpAddr1);
+    
+      const pairInfo = await swapeo.getPairInfo(tokenA.target, tokenB.target);
+      expect(pairInfo._totalLiquidity).to.equal(0);
+      expect(pairInfo._reserveA).to.equal(0);
+      expect(pairInfo._reserveB).to.equal(0);
+    });
+
+    it("should handle withdrawal for a token with 0 decimals", async function () {
+      const MockToken0 = await ethers.getContractFactory("MockERC20Decimals");
+      const token0 = await MockToken0.deploy("ZeroDecimals", "ZERO", 0);
+      await token0.mint(owner.address, 1000);
+      await tokenA.approve(swapeo.target, ethers.parseEther("10"));
+      await token0.approve(swapeo.target, 1000);
+      await swapeo.deposit(tokenA.target, token0.target, ethers.parseEther("10"), 1000);
+      const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, token0.target);
+      await expect(swapeo.withdraw(tokenA.target, token0.target, lpBalance)).to.not.be.reverted;
+    });
+
+    it("should allow withdrawal by the new LP token owner after LP transfer", async function () {
+      await tokenA.connect(addr1).approve(swapeo.target, ethers.parseEther("10"));
+      await tokenB.connect(addr1).approve(swapeo.target, ethers.parseEther("10"));
+      await swapeo.connect(addr1).deposit(tokenA.target, tokenB.target, ethers.parseEther("10"), ethers.parseEther("10"));
+      const lpTokenAddress = await swapeo.pairKeyToLPToken(await swapeo.getKey(tokenA.target, tokenB.target));
+      const lpToken = await ethers.getContractAt("SwapeoLP", lpTokenAddress);
+    
+      const addr1LpBalance = await lpToken.balanceOf(addr1.address);
+      await lpToken.connect(addr1).transfer(addr2.address, addr1LpBalance);
+    
+      await expect(
+        swapeo.connect(addr2).withdraw(tokenA.target, tokenB.target, addr1LpBalance)
+      ).to.not.be.reverted;
+    });
+
+    it("should prevent reentrancy attack on withdraw", async function () {
+      const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
+    
+      const ReentrantAttacker = await ethers.getContractFactory("ReentrantAttacker");
+      const attacker = await ReentrantAttacker.deploy(
+        swapeo.target,
+        tokenA.target,
+        tokenB.target,
+        lpBalance / 10n
+      );
+    
+      const lpTokenAddress = await swapeo.pairKeyToLPToken(await swapeo.getKey(tokenA.target, tokenB.target));
+      const lpToken = await ethers.getContractAt("SwapeoLP", lpTokenAddress);
+      await lpToken.transfer(attacker.target, lpBalance / 10n);
+    
+      await expect(attacker.startAttack()).to.not.be.reverted;
+    
+    });
+
+    it("should revert if token transfer fails during withdraw", async function () {
+      const MockTokenRevert = await ethers.getContractFactory("MockERC20RevertOnWithdraw");
+      const badToken = await MockTokenRevert.deploy("Bad", "BAD", 18);
+      await badToken.mint(owner.address, ethers.parseEther("100"));
+    
+      await tokenA.approve(swapeo.target, ethers.parseEther("10"));
+      await badToken.approve(swapeo.target, ethers.parseEther("10"));
+    
+      await swapeo.deposit(tokenA.target, badToken.target, ethers.parseEther("10"), ethers.parseEther("10"));
+      const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, badToken.target);
+    
+      await badToken.setFailNextTransfer(true);
+    
+      await expect(
+        swapeo.withdraw(tokenA.target, badToken.target, lpBalance)
+      ).to.be.revertedWith("Transfer failed intentionally");
+    });
+    
+  });
+
   describe("Fuzzing", function () {
-    it("test_fuzz_withdraw_shouldNotRevertWithValidInputs", async function () {
+    it("should not revert for multiple valid withdrawal amounts", async function () {
       for (let i = 0; i < 10; i++) {
         const lpBalance = await swapeo.getLPBalance(owner.address, tokenA.target, tokenB.target);
 

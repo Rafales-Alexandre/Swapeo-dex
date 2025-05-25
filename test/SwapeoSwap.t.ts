@@ -53,7 +53,7 @@ describe("SwapeoSwap", function () {
   });
 
   describe("HappyPath", function () {
-    it("test_swap_executesCorrectly_withinSlippage", async function () {
+    it("should execute a swap correctly within allowed slippage", async function () {
       const amountIn = ethers.parseEther("1");
 
       await tokenA.connect(addr1).approve(await swapeo.getAddress(), amountIn);
@@ -79,7 +79,7 @@ describe("SwapeoSwap", function () {
       expect(finalBalance).to.be.gt(0);
     });
 
-    it("test_swap_acceptsExactMinimumAmountOut", async function () {
+    it("should accept swap with exact minimum amount out", async function () {
       const amountIn = ethers.parseEther("1");
       const amountOutMin = await swapeo.getAmountOut(
         amountIn,
@@ -100,7 +100,7 @@ describe("SwapeoSwap", function () {
       ).to.not.be.reverted;
     });
 
-    it("test_swap_handlesReverseTokenOrder", async function () {
+    it("should handle reverse token order for swap", async function () {
       const amountIn = ethers.parseEther("1");
       await tokenB.connect(addr1).approve(await swapeo.getAddress(), amountIn);
 
@@ -121,7 +121,7 @@ describe("SwapeoSwap", function () {
       ).to.not.be.reverted;
     });
 
-    it("test_swap_revertsIfNotApproved", async function () {
+    it("should revert if user did not approve input tokens", async function () {
       const amountIn = ethers.parseEther("1");
       await expect(
         swapeo
@@ -135,7 +135,7 @@ describe("SwapeoSwap", function () {
       ).to.be.reverted;
     });
 
-    it("test_swap_emitsSwapEvent", async function () {
+    it("should emit Swap event on successful swap", async function () {
       const amountIn = ethers.parseEther("1");
       const amountOutMin = await swapeo.getAmountOut(
         amountIn,
@@ -156,7 +156,7 @@ describe("SwapeoSwap", function () {
       ).to.emit(swapeo, "Swap");
     });
 
-    it("test_swap_transfersInputTokenCorrectly", async function () {
+    it("should transfer input tokens from user to contract on swap", async function () {
       const amountIn = ethers.parseEther("1");
       const amountOutMin = await swapeo.getAmountOut(
         amountIn,
@@ -186,7 +186,7 @@ describe("SwapeoSwap", function () {
       expect(contractBalanceAfter - contractBalanceBefore).to.equal(amountIn);
     });
 
-    it("test_swap_executesWithZeroSlippage", async function () {
+    it("should execute swap with zero slippage", async function () {
       const amountIn = ethers.parseEther("1");
       const amountOutMin = await swapeo.getAmountOut(
         amountIn,
@@ -209,7 +209,7 @@ describe("SwapeoSwap", function () {
   });
 
   describe("Events and returns", function () {
-    it("test_swap_returnsExpectedTokenOutAmount", async function () {
+    it("should send expected amount of output tokens to user", async function () {
       const amountIn = ethers.parseEther("1");
 
       await tokenA.connect(addr1).approve(await swapeo.getAddress(), amountIn);
@@ -237,7 +237,7 @@ describe("SwapeoSwap", function () {
       expect(received).to.be.closeTo(amountOutMin, amountOutMin / 100n);
     });
 
-    it("test_swap_emitsSwapEvent_withCorrectValues", async function () {
+    it("should emit Swap event with correct values", async function () {
       const amountIn = ethers.parseEther("1");
       await tokenA.connect(addr1).approve(await swapeo.getAddress(), amountIn);
 
@@ -258,7 +258,6 @@ describe("SwapeoSwap", function () {
         );
       const receipt = await tx.wait();
 
-      // Parse all logs and find the Swap event
       let swapLog: any;
       for (const log of receipt.logs) {
         try {
@@ -268,7 +267,6 @@ describe("SwapeoSwap", function () {
             break;
           }
         } catch (e) {
-          // Not a SwapeoDEX event, skip
         }
       }
 
@@ -280,7 +278,7 @@ describe("SwapeoSwap", function () {
       expect(swapLog.args.outputAmount).to.be.closeTo(expectedOut, expectedOut / 100n);
     });
 
-    it("test_swap_doesNotEmitEventOnRevert", async function () {
+    it("should revert and not emit event if slippage is too high", async function () {
       const amountIn = ethers.parseEther("1");
       const expectedOut = await swapeo.getAmountOut(
         amountIn,
@@ -305,7 +303,7 @@ describe("SwapeoSwap", function () {
   });
 
   describe("UnhappyPath", function () {
-    it("test_swap_revertsOnZeroAmount", async function () {
+    it("should revert if swap amount is zero", async function () {
       await expect(
         swapeo.swap(
           await tokenA.getAddress(),
@@ -316,7 +314,7 @@ describe("SwapeoSwap", function () {
       ).to.be.revertedWithCustomError(swapeo, "InsufficientAmounts");
     });
 
-    it("test_swap_revertsIfOutputTooLow", async function () {
+    it("should revert if minimum output is too high", async function () {
       const amountIn = ethers.parseEther("1");
       const expected = await swapeo.getAmountOut(
         amountIn,
@@ -339,8 +337,78 @@ describe("SwapeoSwap", function () {
     });
   });
 
+  
+  describe("Edge cases", function () {
+    it("should revert when trying to swap a dust amount", async function () {
+      const dust = 1n;
+      await tokenA.connect(addr1).approve(await swapeo.getAddress(), dust);
+      const minOut = await swapeo.getAmountOut(
+        dust,
+        await tokenA.getAddress(),
+        await tokenB.getAddress()
+      );
+      const safeMinOut = minOut > 0n ? minOut - 1n : 0n;
+      await expect(
+        swapeo.connect(addr1).swap(tokenA.getAddress(), tokenB.getAddress(), dust, safeMinOut)
+      ).to.be.reverted;
+    });
+    
+  
+    it("should handle swap after LP transfer", async function () {
+      const lpTokenAddress = await swapeo.pairKeyToLPToken(await swapeo.getKey(tokenA.target, tokenB.target));
+      const lpToken = await ethers.getContractAt("SwapeoLP", lpTokenAddress);
+      const ownerLp = await lpToken.balanceOf(owner.address);
+      await lpToken.transfer(addr1.address, ownerLp);
+  
+      const amountIn = ethers.parseEther("1");
+      await tokenA.connect(addr1).approve(await swapeo.getAddress(), amountIn);
+      const minOut = await swapeo.getAmountOut(amountIn, tokenA.target, tokenB.target);
+  
+      await expect(
+        swapeo.connect(addr1).swap(tokenA.target, tokenB.target, amountIn, minOut - 1n)
+      ).to.not.be.reverted;
+    });
+  
+    it("should handle swap of last liquidity", async function () {
+      const lpTokenAddress = await swapeo.pairKeyToLPToken(await swapeo.getKey(tokenA.target, tokenB.target));
+      const lpToken = await ethers.getContractAt("SwapeoLP", lpTokenAddress);
+      const ownerLp = await lpToken.balanceOf(owner.address);
+  
+      if (ownerLp > 1n) {
+        await lpToken.transfer(addr1.address, ownerLp - 1n);
+      }
+      const amountIn = ethers.parseEther("0.1");
+      await tokenA.connect(addr1).approve(await swapeo.getAddress(), amountIn);
+      const minOut = await swapeo.getAmountOut(amountIn, tokenA.target, tokenB.target);
+      await expect(
+        swapeo.connect(addr1).swap(tokenA.target, tokenB.target, amountIn, minOut - 1n)
+      ).to.not.be.reverted;
+    });
+  
+    it("should revert on swap with identical tokens", async function () {
+      const amountIn = ethers.parseEther("1");
+      await tokenA.connect(addr1).approve(await swapeo.getAddress(), amountIn);
+      await expect(
+        swapeo.connect(addr1).swap(tokenA.target, tokenA.target, amountIn, 0)
+      ).to.be.revertedWithCustomError(swapeo, "IdenticalTokens");
+    });
+  
+    it("should revert if ERC20 transfer reverts", async function () {
+      const RevertToken = await ethers.getContractFactory("MockERC20RevertOnTransfer");
+      const revertToken = await RevertToken.deploy("RevertToken", "REVERT");
+      await revertToken.mint(addr1.address, ethers.parseEther("10"));
+  
+      await revertToken.connect(addr1).approve(await swapeo.getAddress(), ethers.parseEther("1"));
+  
+      await expect(
+        swapeo.connect(addr1).swap(revertToken.target, tokenA.target, ethers.parseEther("1"), 0)
+      ).to.be.revertedWith("ERC20 transferFrom always reverts");
+    });
+  });
+  
+
   describe("Fuzzing", function () {
-    it("test_fuzz_swap_shouldSucceed_withReasonableInputs", async function () {
+    it("should not revert on multiple valid swap amounts", async function () {
       for (let i = 0; i < 5; i++) {
         const amountIn = ethers.parseEther((Math.random() * 5 + 1).toFixed(3));
 

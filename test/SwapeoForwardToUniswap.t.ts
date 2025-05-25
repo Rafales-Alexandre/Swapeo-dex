@@ -38,7 +38,7 @@ describe("SwapeoForwardToUniswap", function () {
   });
 
   describe("Happy Path", function () {
-    it("test_forwardToUniswap_executesWithCorrectFeeDeduction", async function () {
+    it("should deduct the correct fee and send it to owner on fallback swap", async function () {
       const amountIn = ethers.parseEther("1");
       const expectedFee = amountIn * BigInt(5) / BigInt(1000);
 
@@ -54,7 +54,7 @@ describe("SwapeoForwardToUniswap", function () {
       expect(feeReceived).to.equal(expectedFee);
     });
 
-    it("test_forwardToUniswap_transfersOutputToUser", async function () {
+    it("should transfer output tokens to the user after fallback swap", async function () {
       const amountIn = ethers.parseEther("1");
       const tokenBBalanceBefore = await tokenB.balanceOf(addr1.address);
 
@@ -64,7 +64,7 @@ describe("SwapeoForwardToUniswap", function () {
       expect(tokenBBalanceAfter).to.be.gt(tokenBBalanceBefore);
     });
 
-    it("test_forwardToUniswap_approvalResetAfterSwap", async function () {
+    it("should reset allowance to zero after fallback swap", async function () {
       const amountIn = ethers.parseEther("1");
 
       await swapeo.connect(addr1).swap(await tokenA.getAddress(), await tokenB.getAddress(), amountIn, 0);
@@ -73,7 +73,7 @@ describe("SwapeoForwardToUniswap", function () {
       expect(allowance).to.equal(0);
     });
 
-    it("test_forwardToUniswap_emitsExpectedEvent", async function () {
+    it("should emit the Forward event during fallback swap", async function () {
       const amountIn = ethers.parseEther("1");
       const minOut = 0;
 
@@ -82,7 +82,7 @@ describe("SwapeoForwardToUniswap", function () {
       ).to.emit(swapeo, "Forward");
     });
 
-    it("test_forwardToUniswap_feeIsCorrectlyCalculatedForVariousAmounts", async function () {
+    it("should calculate the correct fee for various input amounts", async function () {
       const values = ["0.01", "0.1", "1", "10"];
       for (const val of values) {
         const amount = ethers.parseEther(val);
@@ -100,7 +100,7 @@ describe("SwapeoForwardToUniswap", function () {
       }
     });
 
-    it("test_forwardToUniswap_contractDoesNotKeepInputToken", async function () {
+    it("should not retain input tokens in the contract after fallback swap", async function () {
       const amountIn = ethers.parseEther("1");
       const balanceBefore = await tokenA.balanceOf(await swapeo.getAddress());
 
@@ -110,7 +110,7 @@ describe("SwapeoForwardToUniswap", function () {
       expect(balanceAfter).to.equal(balanceBefore);
     });
 
-    it("test_forwardToUniswap_inputTokenApprovalResetToZero", async function () {
+    it("should set input token allowance to zero after forwarding to router", async function () {
       const amountIn = ethers.parseEther("1");
       await swapeo.connect(addr1).swap(await tokenA.getAddress(), await tokenB.getAddress(), amountIn, 0);
       const allowance = await tokenA.allowance(await swapeo.getAddress(), await uniswapRouter.getAddress());
@@ -119,19 +119,19 @@ describe("SwapeoForwardToUniswap", function () {
   });
 
   describe("Unhappy Path", function () {
-    it("test_forwardToUniswap_revertsOnZeroAmount", async function () {
+    it("should revert if swap amount is zero", async function () {
       await expect(
         swapeo.connect(addr1).swap(await tokenA.getAddress(), await tokenB.getAddress(), 0, 1)
       ).to.be.revertedWithCustomError(swapeo, "InsufficientAmounts");
     });
 
-    it("test_forwardToUniswap_revertsOnZeroAddress", async function () {
+    it("should revert if input token address is zero", async function () {
       await expect(
         swapeo.connect(addr1).swap(ethers.ZeroAddress, await tokenB.getAddress(), 1, 1)
       ).to.be.revertedWithCustomError(swapeo, "ZeroAddress");
     });
 
-    it("test_forwardToUniswap_revertsIfAllowanceTooLow", async function () {
+    it("should revert if input token allowance is insufficient", async function () {
       await tokenA.connect(addr1).approve(await swapeo.getAddress(), 0);
       await expect(
         swapeo.connect(addr1).swap(await tokenA.getAddress(), await tokenB.getAddress(), ethers.parseEther("1"), 0)
@@ -140,7 +140,7 @@ describe("SwapeoForwardToUniswap", function () {
   });
 
   describe("Fuzzing", function () {
-    it("test_fuzz_forwardToUniswap_shouldNotRevertWithReasonableAmounts", async function () {
+    it("should not revert with reasonable input amounts on fallback swap", async function () {
       for (let i = 1; i <= 5; i++) {
         const amount = ethers.parseEther(i.toString());
         await tokenA.transfer(addr1.address, amount);

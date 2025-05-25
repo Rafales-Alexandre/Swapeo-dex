@@ -27,6 +27,7 @@ interface ISwapeoDEX {
     );
     event Forward(address inputToken, address outputToken, uint256 inputAmount, uint256 outputAmount);
     event FeeUpdate(uint16 newFee);
+    event LPTokenCreated(bytes32 indexed pairKey, address lpToken);
 
     function deposit(
         address tokenA,
@@ -48,10 +49,6 @@ interface ISwapeoDEX {
         uint256 minOutputAmount
     ) external returns (uint256);
 
-    function claimFees(address tA, address tB) external;
-
-    function distributeFees(address tokenA, address tokenB) external;
-
     function getAmountOut(
         uint256 amountIn,
         address inputToken,
@@ -69,9 +66,7 @@ interface ISwapeoDEX {
             address _token1,
             uint112 _reserveA,
             uint112 _reserveB,
-            uint256 _totalLiquidity,
-            uint256 _accumulatedFeeA,
-            uint256 _accumulatedFeeB
+            uint256 _totalLiquidity
         );
 
     function getLPBalance(
@@ -79,11 +74,6 @@ interface ISwapeoDEX {
         address tokenA,
         address tokenB
     ) external view returns (uint256);
-
-    function getLPProviders(
-        address tokenA,
-        address tokenB
-    ) external view returns (address[] memory);
 
     function getKey(address tokenA, address tokenB) external pure returns (bytes32);
 
@@ -94,8 +84,6 @@ interface ISwapeoDEX {
         external
         view
         returns (uint112 reserveA, uint112 reserveB, uint32 timestamp);
-
-    function feesCollected(bytes32 pairKey) external view returns (uint256 feeA, uint256 feeB);
 
     function setSwapFee(uint16 _newSwapFee) external;
 }

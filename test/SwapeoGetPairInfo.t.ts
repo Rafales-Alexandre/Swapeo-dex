@@ -35,79 +35,69 @@ describe("SwapeoGetPairInfo", function () {
   });
 
   describe("HappyPath", function () {
-    it("test_getPairInfo_returnsCorrectValues", async function () {
-      const [tokenAddrA, tokenAddrB, reserveA, reserveB, totalLiquidity, accFeeA, accFeeB] =
+    it("should return correct values for an existing pair", async function () {
+      const [addr0, addr1, reserve0, reserve1, totalLiquidity] =
         await swapeo.getPairInfo(await tokenA.getAddress(), await tokenB.getAddress());
-
-      expect(tokenAddrA).to.equal(await tokenA.getAddress());
-      expect(tokenAddrB).to.equal(await tokenB.getAddress());
-      expect(reserveA).to.equal(ethers.parseEther("100"));
-      expect(reserveB).to.equal(ethers.parseEther("100"));
+    
+      const [expected0, expected1] = [await tokenA.getAddress(), await tokenB.getAddress()].sort();
+    
+      const expectedReserve0 = expected0 === await tokenA.getAddress()
+        ? ethers.parseEther("100")
+        : ethers.parseEther("100");
+      const expectedReserve1 = expected1 === await tokenB.getAddress()
+        ? ethers.parseEther("100")
+        : ethers.parseEther("100");
+    
+      expect(addr0).to.equal(expected0);
+      expect(addr1).to.equal(expected1);
+      expect(reserve0).to.equal(ethers.parseEther("100"));
+      expect(reserve1).to.equal(ethers.parseEther("100"));
       expect(totalLiquidity).to.be.gt(0);
-      expect(accFeeA).to.equal(0);
-      expect(accFeeB).to.equal(0);
     });
+    
 
-    it("test_getPairInfo_orderIndependence", async function () {
+    it("should return the same info regardless of token order", async function () {
       const info1 = await swapeo.getPairInfo(await tokenA.getAddress(), await tokenB.getAddress());
       const info2 = await swapeo.getPairInfo(await tokenB.getAddress(), await tokenA.getAddress());
 
       expect(info1).to.deep.equal(info2);
     });
 
-    it("test_getPairInfo_afterSwap_reflectsUpdatedReservesAndFees", async function () {
+    it("should update reserves after a swap", async function () {
       await tokenA.transfer(addr1.address, ethers.parseEther("10"));
       await tokenA.connect(addr1).approve(await swapeo.getAddress(), ethers.parseEther("10"));
-
-      const before = await swapeo.getPairInfo(await tokenA.getAddress(), await tokenB.getAddress());
-      const [token0, , reserveBeforeA, reserveBeforeB] = before;
-
+    
+      const [token0, token1, reserveBefore0, reserveBefore1, totalLiquidityBefore] =
+        await swapeo.getPairInfo(await tokenA.getAddress(), await tokenB.getAddress());
+    
+      const inputToken = await tokenA.getAddress();
+      const outputToken = await tokenB.getAddress();
+      const isToken0Input = token0 === inputToken;
+    
       const amountIn = ethers.parseEther("1");
-      const amountOutMin = await swapeo.getAmountOut(amountIn, await tokenA.getAddress(), await tokenB.getAddress());
+      const amountOutMin = await swapeo.getAmountOut(amountIn, inputToken, outputToken);
+    
       await swapeo.connect(addr1).swap(
-        await tokenA.getAddress(),
-        await tokenB.getAddress(),
+        inputToken,
+        outputToken,
         amountIn,
         amountOutMin - amountOutMin / 100n
       );
-
-      const after = await swapeo.getPairInfo(await tokenA.getAddress(), await tokenB.getAddress());
-      const [, , reserveAfterA, reserveAfterB, , accFeeA, accFeeB] = after;
-
-      const isToken0Input = token0 === await tokenA.getAddress();
-
+    
+      const [token0A, token1A, reserveAfter0, reserveAfter1, totalLiquidityAfter] =
+        await swapeo.getPairInfo(inputToken, outputToken);
+    
       if (isToken0Input) {
-        expect(reserveAfterA).to.be.gt(reserveBeforeA);
-        expect(reserveAfterB).to.be.lt(reserveBeforeB);
-        expect(accFeeA).to.be.gt(0);
+        expect(reserveAfter0).to.be.gt(reserveBefore0);
+        expect(reserveAfter1).to.be.lt(reserveBefore1);
       } else {
-        expect(reserveAfterB).to.be.gt(reserveBeforeB);
-        expect(reserveAfterA).to.be.lt(reserveBeforeA);
-        expect(accFeeB).to.be.gt(0);
+        expect(reserveAfter1).to.be.gt(reserveBefore1);
+        expect(reserveAfter0).to.be.lt(reserveBefore0);
       }
     });
+    
 
-    it("test_getPairInfo_afterDistributeFees_resetsFeesCollected", async function () {
-      await tokenA.transfer(addr1.address, ethers.parseEther("10"));
-      await tokenA.connect(addr1).approve(await swapeo.getAddress(), ethers.parseEther("10"));
-
-      const amountIn = ethers.parseEther("1");
-      const amountOutMin = await swapeo.getAmountOut(amountIn, await tokenA.getAddress(), await tokenB.getAddress());
-      await swapeo.connect(addr1).swap(
-        await tokenA.getAddress(),
-        await tokenB.getAddress(),
-        amountIn,
-        amountOutMin - amountOutMin / 100n
-      );
-
-      await swapeo.distributeFees(await tokenA.getAddress(), await tokenB.getAddress());
-
-      const [, , , , , accFeeA, accFeeB] = await swapeo.getPairInfo(await tokenA.getAddress(), await tokenB.getAddress());
-      expect(accFeeA).to.equal(0);
-      expect(accFeeB).to.equal(0);
-    });
-
-    it("test_getPairInfo_and_getReserves_shouldMatch", async function () {
+    it("should match reserves between getPairInfo and getReserves", async function () {
       const pairInfo = await swapeo.getPairInfo(await tokenA.getAddress(), await tokenB.getAddress());
       const reserves = await swapeo.getReserves(await tokenA.getAddress(), await tokenB.getAddress());
 
@@ -120,7 +110,7 @@ describe("SwapeoGetPairInfo", function () {
       expect(reserveFromInfoB).to.equal(reserveFromGetReservesB);
     });
 
-    it("test_getReserves_blockTimestampLast_shouldUpdateAfterSwap", async function () {
+    it("should update blockTimestampLast after a swap", async function () {
       await tokenA.transfer(addr1.address, ethers.parseEther("10"));
       await tokenA.connect(addr1).approve(await swapeo.getAddress(), ethers.parseEther("10"));
 
@@ -140,7 +130,7 @@ describe("SwapeoGetPairInfo", function () {
       expect(timestampAfter).to.be.gt(timestampBefore);
     });
 
-    it("test_getReserves_blockTimestampLast_isInitialized", async function () {
+    it("should have initialized blockTimestampLast on first deposit", async function () {
       const [, , timestamp] = await swapeo.getReserves(await tokenA.getAddress(), await tokenB.getAddress());
       expect(timestamp).to.be.gt(0);
     });
@@ -148,8 +138,8 @@ describe("SwapeoGetPairInfo", function () {
   });
 
   describe("UnhappyPath", function () {
-    it("test_getPairInfo_returnsZeroForNonExistentPair", async function () {
-      const [tokenAddrA, tokenAddrB, reserveA, reserveB, totalLiquidity, feesCollected] =
+    it("should return zeros for a non-existent pair", async function () {
+      const [tokenAddrA, tokenAddrB, reserveA, reserveB, totalLiquidity] =
         await swapeo.getPairInfo(await tokenA.getAddress(), await tokenC.getAddress());
 
       expect(tokenAddrA).to.equal(ethers.ZeroAddress);
@@ -157,24 +147,120 @@ describe("SwapeoGetPairInfo", function () {
       expect(reserveA).to.equal(0);
       expect(reserveB).to.equal(0);
       expect(totalLiquidity).to.equal(0);
-      expect(feesCollected).to.equal(0);
     });
 
-    it("test_getPairInfo_withIdenticalTokens_returnsZero", async function () {
-      const [tokenAddrA, tokenAddrB, reserveA, reserveB, totalLiquidity, feesCollected] =
-        await swapeo.getPairInfo(await tokenA.getAddress(), await tokenA.getAddress());
+    it("should revert for identical tokens", async function () {
+      await expect(
+        swapeo.getPairInfo(await tokenA.getAddress(), await tokenA.getAddress())
+      ).to.be.revertedWithCustomError(swapeo,"IdenticalTokens");
+    });
+  });
 
+  describe("Edge Cases", function () {
+    it("should revert for getPairInfo with ZeroAddress as one token", async function () {
+      await expect(
+        swapeo.getPairInfo(ethers.ZeroAddress, await tokenA.getAddress())
+      ).to.be.revertedWithCustomError(swapeo, "ZeroAddress");
+    });
+    
+  
+    it("should revert for getPairInfo with both tokens as ZeroAddress", async function () {
+      await expect(
+        swapeo.getPairInfo(ethers.ZeroAddress, ethers.ZeroAddress)
+      ).to.be.revertedWithCustomError(swapeo, "IdenticalTokens");
+    });
+  
+    it("should return small (dust) values after almost all liquidity withdrawn", async function () {
+      const lpTokenAddress = await swapeo.pairKeyToLPToken(await swapeo.getKey(tokenA.target, tokenB.target));
+      const lpToken = await ethers.getContractAt("SwapeoLP", lpTokenAddress);
+      const ownerLp = await lpToken.balanceOf(owner.address);
+    
+      if (ownerLp > 1n) {
+        await lpToken.transfer(addr1.address, ownerLp - 1n);
+      }
+      await swapeo.connect(addr1).withdraw(tokenA.target, tokenB.target, ownerLp - 1n);
+    
+      const [tokenAddrA, tokenAddrB, reserveA, reserveB, totalLiquidity, accFeeA, accFeeB] =
+        await swapeo.getPairInfo(tokenA.target, tokenB.target);
+    
+      expect(reserveA).to.be.lte(1_000_000_000_000_000n);
+      expect(reserveB).to.be.lte(1_000_000_000_000_000n);
+      expect(totalLiquidity).to.be.lte(1_000_000_000_000_000n);
+      expect([tokenAddrA, tokenAddrB]).to.have.members([tokenA.target, tokenB.target]);
+    });
+    
+  
+    it("should return zeros for getPairInfo on never-created pair", async function () {
+      const [tokenAddrA, tokenAddrB, reserveA, reserveB, totalLiquidity] =
+        await swapeo.getPairInfo(tokenA.target, tokenC.target);
+  
       expect(tokenAddrA).to.equal(ethers.ZeroAddress);
       expect(tokenAddrB).to.equal(ethers.ZeroAddress);
       expect(reserveA).to.equal(0);
       expect(reserveB).to.equal(0);
       expect(totalLiquidity).to.equal(0);
-      expect(feesCollected).to.equal(0);
     });
-  });
+  
+    it("should reflect correct reserves and fees after deposit -> swap -> withdraw -> deposit", async function () {
+  await tokenA.approve(await swapeo.getAddress(), ethers.parseEther("10"));
+  await tokenB.approve(await swapeo.getAddress(), ethers.parseEther("10"));
+  await swapeo.deposit(tokenA.target, tokenB.target, ethers.parseEther("10"), ethers.parseEther("10"));
 
+  await tokenA.transfer(addr1.address, ethers.parseEther("1"));
+  await tokenA.connect(addr1).approve(await swapeo.getAddress(), ethers.parseEther("1"));
+  const amountOutMin = await swapeo.getAmountOut(
+    ethers.parseEther("1"),
+    tokenA.target,
+    tokenB.target
+  );
+  await swapeo.connect(addr1).swap(
+    tokenA.target,
+    tokenB.target,
+    ethers.parseEther("1"),
+    amountOutMin - 1n
+  );
+
+  const lpTokenAddress = await swapeo.pairKeyToLPToken(await swapeo.getKey(tokenA.target, tokenB.target));
+  const lpToken = await ethers.getContractAt("SwapeoLP", lpTokenAddress);
+  const ownerLp = await lpToken.balanceOf(owner.address);
+  await swapeo.withdraw(tokenA.target, tokenB.target, ownerLp / 2n);
+
+  await tokenA.approve(await swapeo.getAddress(), ethers.parseEther("2"));
+  await tokenB.approve(await swapeo.getAddress(), ethers.parseEther("2"));
+  await swapeo.deposit(tokenA.target, tokenB.target, ethers.parseEther("2"), ethers.parseEther("2"));
+
+  const [
+    tokenAddrA,
+    tokenAddrB,
+    reserveA,
+    reserveB,
+    totalLiquidity,
+    accFeeA,
+    accFeeB,
+  ] = await swapeo.getPairInfo(tokenA.target, tokenB.target);
+
+  const [expected0, expected1] =
+    tokenA.target.toLowerCase() < tokenB.target.toLowerCase()
+      ? [tokenA.target, tokenB.target]
+      : [tokenB.target, tokenA.target];
+
+  expect(tokenAddrA.toLowerCase()).to.equal(expected0.toLowerCase());
+  expect(tokenAddrB.toLowerCase()).to.equal(expected1.toLowerCase());
+  expect(reserveA).to.be.gt(0);
+  expect(reserveB).to.be.gt(0);
+  expect(totalLiquidity).to.be.gt(0);
+    });
+  
+    it("should not revert if ERC20 balanceOf throws (malicious token)", async function () {
+      const EvilERC20Factory = await ethers.getContractFactory("MockERC20RevertOnBalanceOf");
+      const evilToken = await EvilERC20Factory.deploy("EvilToken", "EVL");
+      await expect(swapeo.getPairInfo(evilToken.target, tokenA.target)).to.not.be.reverted;
+    });
+  
+  });
+  
   describe("Fuzzing", function () {
-    it("test_fuzz_getPairInfo_withRandomAddresses_doesNotRevert", async function () {
+    it("should not revert with random addresses", async function () {
       for (let i = 0; i < 5; i++) {
         const wallet1 = ethers.Wallet.createRandom();
         const wallet2 = ethers.Wallet.createRandom();

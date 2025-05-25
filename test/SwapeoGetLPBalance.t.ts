@@ -42,22 +42,22 @@ describe("SwapeoGetLPBalance", function () {
   });
 
   describe("HappyPath", function () {
-    it("test_getLPBalance_returnsCorrectValueForOwner", async function () {
+    it("should return correct LP balance for initial provider", async function () {
       const balance = await swapeo.getLPBalance(owner.address, await tokenA.getAddress(), await tokenB.getAddress());
       expect(balance).to.be.gt(0);
     });
 
-    it("test_getLPBalance_returnsCorrectValueForOtherUser", async function () {
+    it("should return correct LP balance for a second provider", async function () {
       const balance = await swapeo.getLPBalance(addr1.address, await tokenA.getAddress(), await tokenB.getAddress());
       expect(balance).to.be.gt(0);
     });
 
-    it("test_getLPBalance_returnsZeroForNonProvider", async function () {
+    it("should return zero for a user who never provided", async function () {
       const balance = await swapeo.getLPBalance(addr2.address, await tokenA.getAddress(), await tokenB.getAddress());
       expect(balance).to.equal(0);
     });
 
-    it("test_getLPBalance_symmetricOrder", async function () {
+    it("should be order-agnostic", async function () {
       const b1 = await swapeo.getLPBalance(owner.address, await tokenA.getAddress(), await tokenB.getAddress());
       const b2 = await swapeo.getLPBalance(owner.address, await tokenB.getAddress(), await tokenA.getAddress());
       expect(b1).to.equal(b2);
@@ -65,19 +65,19 @@ describe("SwapeoGetLPBalance", function () {
   });
 
   describe("UnhappyPath", function () {
-    it("test_getLPBalance_withSameToken_returnsZero", async function () {
+    it("should return zero for same token as both pair sides", async function () {
       const balance = await swapeo.getLPBalance(owner.address, await tokenA.getAddress(), await tokenA.getAddress());
       expect(balance).to.equal(0);
     });
 
-    it("test_getLPBalance_withNonExistentPair_returnsZero", async function () {
+    it("should return zero for a non-existent pair", async function () {
       const balance = await swapeo.getLPBalance(owner.address, await tokenA.getAddress(), await tokenC.getAddress());
       expect(balance).to.equal(0);
     });
   });
 
   describe("Fuzzing", function () {
-    it("test_fuzz_getLPBalance_withRandomAddresses_doesNotRevert", async function () {
+    it("should not revert and return a bigint for random addresses", async function () {
       for (let i = 0; i < 3; i++) {
         const wallet = ethers.Wallet.createRandom();
         const balance = await swapeo.getLPBalance(wallet.address, await tokenA.getAddress(), await tokenB.getAddress());

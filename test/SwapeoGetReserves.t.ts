@@ -43,7 +43,7 @@ describe("SwapeoGetReserves", function () {
   });
 
   describe("HappyPath", function () {
-    it("test_getReserves_returnsCorrectReserves", async function () {
+    it("should return reserves for an existing pair", async function () {
       const [reserveA, reserveB] = await swapeo.getReserves(
         await tokenA.getAddress(),
         await tokenB.getAddress()
@@ -52,7 +52,7 @@ describe("SwapeoGetReserves", function () {
       expect(reserveB).to.equal(ethers.parseUnits("100", 18));
     });
 
-    it("test_getReserves_isSymmetric", async function () {
+    it("should return the same reserves regardless of token order", async function () {
       const [r1A, r1B] = await swapeo.getReserves(
         await tokenA.getAddress(),
         await tokenB.getAddress()
@@ -66,7 +66,7 @@ describe("SwapeoGetReserves", function () {
       expect(r1B).to.equal(r2B);
     });
 
-    it("test_getReserves_returnsCorrectTimestamp", async function () {
+    it("should update timestamp after a swap", async function () {
       const [, , timestampBefore] = await swapeo.getReserves(
         await tokenA.getAddress(),
         await tokenB.getAddress()
@@ -101,26 +101,26 @@ describe("SwapeoGetReserves", function () {
   });
 
   describe("UnhappyPath", function () {
-    it("test_getReserves_withSameToken_returnsZero", async function () {
-      const [reserveA, reserveB] = await swapeo.getReserves(
-        await tokenA.getAddress(),
-        await tokenA.getAddress()
-      );
-      expect(reserveA).to.equal(0);
-      expect(reserveB).to.equal(0);
+    it("should revert for same token as both pair sides", async function () {
+      await expect(
+        swapeo.getReserves(
+          await tokenA.getAddress(),
+          await tokenA.getAddress()
+        )
+      ).to.be.revertedWithCustomError(swapeo, "IdenticalTokens");
     });
 
-    it("test_getReserves_withZeroAddress_returnsZero", async function () {
-      const zero = ethers.ZeroAddress;
-      const [reserveA, reserveB] = await swapeo.getReserves(
-        zero,
-        await tokenA.getAddress()
-      );
-      expect(reserveA).to.equal(0);
-      expect(reserveB).to.equal(0);
+    it("should revert for ZeroAddress as one token", async function () {
+      await expect(
+        swapeo.getReserves(
+          ethers.ZeroAddress,
+          await tokenA.getAddress()
+        )
+      ).to.be.revertedWithCustomError(swapeo, "ZeroAddress");
     });
+    
 
-    it("test_getReserves_withNonExistentPair_returnsZero", async function () {
+    it("should return zero for a non-existent pair", async function () {
       const [reserveA, reserveB] = await swapeo.getReserves(
         await tokenA.getAddress(),
         await tokenC.getAddress()
@@ -129,7 +129,7 @@ describe("SwapeoGetReserves", function () {
       expect(reserveB).to.equal(0);
     });
 
-    it("test_getReserves_returnsZeroForTokenWithNoLiquidity", async function () {
+    it("should return zero after withdrawing all liquidity", async function () {
       const lpBalance = await swapeo.getLPBalance(
         owner.address,
         await tokenA.getAddress(),
@@ -151,7 +151,7 @@ describe("SwapeoGetReserves", function () {
   });
 
   describe("Fuzzing", function () {
-    it("test_fuzz_getReserves_withRandomAddresses_doesNotRevert", async function () {
+    it("should not revert and return zeros or valid values for random token address pairs", async function () {
       for (let i = 0; i < 5; i++) {
         const wallet1 = ethers.Wallet.createRandom();
         const wallet2 = ethers.Wallet.createRandom();

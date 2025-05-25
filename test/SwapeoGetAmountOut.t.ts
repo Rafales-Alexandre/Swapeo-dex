@@ -40,23 +40,29 @@ describe("SwapeoGetAmountOut", function () {
     });
 
     describe("Happy path", function () {
-        it("test_getAmountOut_returnsExpectedAmount_simpleSwap", async function () {
+        it("should return expected amount for a simple swap", async function () {
             const amountIn = ethers.parseEther("1");
-
-            const [reserveA, reserveB] = await swapeo.getReserves(await tokenA.getAddress(), await tokenB.getAddress());
-
+            const pairInfo = await swapeo.getPairInfo(await tokenA.getAddress(), await tokenB.getAddress());
+        
+            const inputToken = await tokenA.getAddress();
+            const token0 = pairInfo[0];
+            const reserveA = pairInfo[2];
+            const reserveB = pairInfo[3];
+        
+            const reserveIn = (inputToken === token0) ? reserveA : reserveB;
+            const reserveOut = (inputToken === token0) ? reserveB : reserveA;
+        
             const amountInWithFee = amountIn * 997n;
-            const numerator = amountInWithFee * reserveB;
-            const denominator = reserveA * 1000n + amountInWithFee;
+            const numerator = amountInWithFee * reserveOut;
+            const denominator = reserveIn * 1000n + amountInWithFee;
             const expectedAmountOut = numerator / denominator;
-
-            const amountOut = await swapeo.getAmountOut(amountIn, await tokenA.getAddress(), await tokenB.getAddress());
-
+        
+            const amountOut = await swapeo.getAmountOut(amountIn, inputToken, await tokenB.getAddress());
             const tolerance = ethers.parseEther("0.001");
             expect(amountOut).to.be.closeTo(expectedAmountOut, tolerance);
-        });
+        });   
 
-        it("test_getAmountOut_returnsSameAmountInBothDirections_whenReservesEqual", async function () {
+        it("should return same amount in both directions when reserves are equal", async function () {
             const amount = ethers.parseEther("100");
             await tokenA.approve(await swapeo.getAddress(), amount);
             await tokenC.approve(await swapeo.getAddress(), amount);
@@ -79,7 +85,7 @@ describe("SwapeoGetAmountOut", function () {
             expect(amountOutAtoC).to.equal(amountOutCtoA);
         });
 
-        it("test_getAmountOut_increasesProductXY_respectingAMMWithFees", async function () {
+        it("should increase product x*y after swap with fees", async function () {
             const amountIn = ethers.parseEther("1");
 
             const pairInfo = await swapeo.getPairInfo(await tokenA.getAddress(), await tokenB.getAddress());
@@ -109,7 +115,7 @@ describe("SwapeoGetAmountOut", function () {
             expect(difference).to.be.lte(maxAllowedIncrease);
         });
 
-        it("test_getAmountOut_outputsRoughlyProportional_forDifferentInputSizes", async function () {
+        it("should output roughly proportional amounts for different input sizes", async function () {
             const smallAmount = ethers.parseEther("1");
             const largeAmount = ethers.parseEther("10");
 
@@ -132,7 +138,7 @@ describe("SwapeoGetAmountOut", function () {
     });
 
     describe("Unhappy path", function () {
-        it("test_getAmountOut_revertsIfTokenAddressesAreEqual", async function () {
+        it("should revert if input and output tokens are equal", async function () {
             await expect(
                 swapeo.getAmountOut(
                     ethers.parseEther("1"),
@@ -142,7 +148,7 @@ describe("SwapeoGetAmountOut", function () {
             ).to.be.revertedWithCustomError(swapeo, "IdenticalTokens");
         });
 
-        it("test_getAmountOut_revertsIfZeroAddressIsUsed_asInputOrOutput", async function () {
+        it("should revert if zero address is used as input or output", async function () {
             const zeroAddress = ethers.ZeroAddress;
 
             await expect(
@@ -162,7 +168,7 @@ describe("SwapeoGetAmountOut", function () {
             ).to.be.revertedWithCustomError(swapeo, "ZeroAddress");
         });
 
-        it("test_getAmountOut_revertsIfInputAmountIsZero", async function () {
+        it("should revert if input amount is zero", async function () {
             await expect(
                 swapeo.getAmountOut(
                     0,
@@ -172,7 +178,7 @@ describe("SwapeoGetAmountOut", function () {
             ).to.be.revertedWithCustomError(swapeo, "InsufficientAmounts");
         });
 
-        it("test_getAmountOut_revertsIfPairDoesNotExist", async function () {
+        it("should revert if pair does not exist", async function () {
             await expect(
                 swapeo.getAmountOut(
                     ethers.parseEther("1"),
@@ -182,7 +188,7 @@ describe("SwapeoGetAmountOut", function () {
             ).to.be.revertedWithCustomError(swapeo, "NoLiquidity");
         });
 
-        it("test_swap_revertsIfInputAmountTooLargeComparedToReserves", async function () {
+        it("should revert if input amount is too large compared to reserves", async function () {
             const hugeAmount = ethers.parseEther("1000000");
 
             await tokenA.approve(await swapeo.getAddress(), hugeAmount);
@@ -194,7 +200,7 @@ describe("SwapeoGetAmountOut", function () {
     });
 
     describe("Fee calculations", function () {
-        it("test_getAmountOut_appliesSwapFeeCorrectly_0_3_percent", async function () {
+        it("should apply swap fee of 0.3% correctly", async function () {
             const amountIn = ethers.parseEther("100");
             const [reserveA, reserveB] = await swapeo.getReserves(await tokenA.getAddress(), await tokenB.getAddress());
 
@@ -213,7 +219,7 @@ describe("SwapeoGetAmountOut", function () {
             expect(amountOut).to.be.closeTo(expectedAmountOut, tolerance);
         });
 
-        it("test_getAmountOut_isStableAcrossMultipleCalls_sameInputAmount", async function () {
+        it("should be stable across multiple calls with same input amount", async function () {
             const amountIn = ethers.parseEther("1");
 
             const amounts: bigint[] = [];
@@ -233,7 +239,7 @@ describe("SwapeoGetAmountOut", function () {
     });
 
     describe("Slippage calculations", function () {
-        it("test_getAmountOut_slippageIncreases_withLargerAmounts", async function () {
+        it("should show slippage increases with larger amounts", async function () {
             const amounts = [
                 ethers.parseEther("1"),
                 ethers.parseEther("10"),
@@ -260,7 +266,7 @@ describe("SwapeoGetAmountOut", function () {
             }
         });
 
-        it("test_getAmountOut_slippageRemainsMinimal_withSmallAmounts", async function () {
+        it("should keep slippage minimal with small input amounts", async function () {
             const tinyAmount = ethers.parseEther("0.1");
             const smallAmount = ethers.parseEther("1");
 
@@ -284,9 +290,40 @@ describe("SwapeoGetAmountOut", function () {
             expect(rateRatio).to.be.gte(98n);
         });
     });
-
+    describe("Edge Cases", function () {
+        it("should return zero or one when reserves or input are too small", async function () {
+            await tokenA.approve(await swapeo.getAddress(), 1);
+            await tokenB.approve(await swapeo.getAddress(), 1);
+            await swapeo.deposit(await tokenA.getAddress(), await tokenB.getAddress(), 1, 1);
+        
+            const amountOut = await swapeo.getAmountOut(1, await tokenA.getAddress(), await tokenB.getAddress());
+            expect([0n, 1n]).to.include(amountOut);
+        });
+    
+        it("should return reasonable output with asymmetric reserves", async function () {
+            await tokenA.approve(await swapeo.getAddress(), ethers.parseEther("1"));
+            await tokenB.approve(await swapeo.getAddress(), 10);
+            await swapeo.deposit(await tokenA.getAddress(), await tokenB.getAddress(), ethers.parseEther("1"), 10);
+    
+            const amountOut = await swapeo.getAmountOut(1, await tokenB.getAddress(), await tokenA.getAddress());
+            expect(amountOut).to.be.lte(ethers.parseEther("1"));
+        });
+    
+    
+        it("should not underflow with tiny liquidity", async function () {
+            await tokenA.approve(await swapeo.getAddress(), 1);
+            await tokenB.approve(await swapeo.getAddress(), 1);
+            await swapeo.deposit(await tokenA.getAddress(), await tokenB.getAddress(), 1, 1);
+        
+            const out = await swapeo.getAmountOut(2, await tokenA.getAddress(), await tokenB.getAddress());
+            expect(out).to.be.gte(0);
+            expect(out).to.be.lte(3);
+        });
+        
+    });
+    
     describe("Fuzzing", function () {
-        it("test_fuzz_getAmountOut_shouldNotRevertOnValidInput", async function () {
+        it("should not revert and return valid outputs on random valid input amounts", async function () {
             const [reserveA, reserveB] = await swapeo.getReserves(await tokenA.getAddress(), await tokenB.getAddress());
 
             for (let i = 1; i <= 10; i++) {
