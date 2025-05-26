@@ -124,7 +124,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
 
         if (cachedPairInfo.timestamp == 0) {
             liquidityMinted = _sqrt(amountA * amountB);
-            require(liquidityMinted > MINIMUM_LIQUIDITY, "Insufficient initial liquidity");
+            if (liquidityMinted <= MINIMUM_LIQUIDITY) revert InsufficientInitialLiquidity();
             // Permanently lock MINIMUM_LIQUIDITY to address(0) to prevent anyone from ever draining the entire pool (Uniswap V2 convention).
             SwapeoLP(pairKeyToLPToken[pairKey]).mint(DEAD_ADDRESS, MINIMUM_LIQUIDITY);
             liquidityMinted -= MINIMUM_LIQUIDITY;
@@ -289,17 +289,17 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
 
         if (inputToken == token0) {
             uint256 newReserveB = balanceB - amountOut;
-            require(amountOut <= balanceB, "AmountOut exceeds reserveB");
+            if (amountOut > balanceB) revert AmountOutExceedsReserveB();
             // Ensure reserves never overflow uint112 and amounts are not greater than available balances.
-            require(newReserveB <= type(uint112).max, "ReserveB overflow");
-            require(balanceA <= type(uint112).max, "ReserveA overflow");
+            if (newReserveB > type(uint112).max) revert ReserveBOverflow();
+            if (balanceA > type(uint112).max) revert ReserveAOverflow();
             pair.reserveA = uint112(balanceA);
             pair.reserveB = uint112(newReserveB);
         } else {
             uint256 newReserveA = balanceA - amountOut;
-            require(amountOut <= balanceA, "AmountOut exceeds reserveA");
-            require(newReserveA <= type(uint112).max, "ReserveA overflow");
-            require(balanceB <= type(uint112).max, "ReserveB overflow");
+            if (amountOut > balanceA) revert AmountOutExceedsReserveA();
+            if (newReserveA > type(uint112).max) revert ReserveAOverflow();
+            if (balanceB > type(uint112).max) revert ReserveBOverflow();
             pair.reserveA = uint112(newReserveA);
             pair.reserveB = uint112(balanceB);
         }
@@ -479,7 +479,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         address tokenA,
         address tokenB
     ) private pure returns (address token0, address token1) {
-        require(tokenA != tokenB, "Identical tokens");
+        if (tokenA == tokenB) revert IdenticalTokens();
         (token0, token1) = tokenA < tokenB
             ? (tokenA, tokenB)
             : (tokenB, tokenA);
