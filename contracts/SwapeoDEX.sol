@@ -9,35 +9,37 @@ import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/ISwapeoDEX.sol";
 import "./SwapeoLP.sol";
+import "./libraries/SwapeoErrors.sol";
 
+
+/**
+ * @title SwapeoDEX
+ * @notice AMM-based DEX inspired by Uniswap V2, with fallback to Uniswap for unsupported pairs.
+ * @dev
+ * - MINIMUM_LIQUIDITY is locked to a burn address (Uniswap V2 logic, OpenZeppelin compatible).
+ * - Fees for fallback swaps go to the owner; for production, consider DAO or LP fee distribution.
+ * - Full withdrawals also claim any ERC20 "dust" in the contract, as in Uniswap.
+ * - LP token deployment uses CREATE2 for deterministic addresses.
+ * - Only standard-compliant ERC20 tokens are supported; fee-on-transfer or non-standard tokens may cause unexpected behavior.
+ */
 contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
     using SafeERC20 for IERC20;
 
     struct PairInfo {
         uint112 reserveA;
         uint112 reserveB;
-        uint32 timestamp;
+        uint32 timestamp; // timestamp is reserved for future use (e.g., TWAP/oracle)
         uint256 totalLiquidity;
     }
-
-    error ZeroAddress();
-    error IdenticalTokens();
-    error InsufficientAmounts();
-    error InvalidRatio();
-    error NoLiquidity();
-    error InsufficientLiquidity();
-    error HighSlippage();
-    error UseForward();
-    error NoFees();
-    error UnexistingPair();
-    error InvalidFee();
-
     uint16 public swapFee;
 
     uint16 private constant FEE_DENOMINATOR = 1000;
     uint16 private constant FORWARD_FEE_DENOMINATOR = 1000;
     uint16 private constant FORWARD_FEE_NUMERATOR = 5;
+    // Minimum liquidity locked forever to prevent the pool from being fully drained by a single user.
     uint112 private constant MINIMUM_LIQUIDITY = 1;
+    // Irrecoverable "burn" address for locking MINIMUM_LIQUIDITY, since OpenZeppelin ERC20 forbids minting to address(0)
+    address constant DEAD_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     mapping(bytes32 => address) public pairKeyToLPToken;
     mapping(bytes32 => PairInfo) public pairKeyToPairInfo;
@@ -94,6 +96,8 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
                 )
             );
 
+            // Deploy LP token with CREATE2 to ensure deterministic address per pair.     
+            // This guarantees one unique LP token per pair, and makes pool discovery easier for external tools.
             address lpTokenAddr = deployLPToken(
                 tokenName,
                 tokenSymbol,
@@ -119,7 +123,11 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         uint256 liquidityMinted;
 
         if (cachedPairInfo.timestamp == 0) {
-            liquidityMinted = _sqrt(amountA * amountB) - MINIMUM_LIQUIDITY;
+            liquidityMinted = _sqrt(amountA * amountB);
+            require(liquidityMinted > MINIMUM_LIQUIDITY, "Insufficient initial liquidity");
+            // Permanently lock MINIMUM_LIQUIDITY to address(0) to prevent anyone from ever draining the entire pool (Uniswap V2 convention).
+            SwapeoLP(pairKeyToLPToken[pairKey]).mint(DEAD_ADDRESS, MINIMUM_LIQUIDITY);
+            liquidityMinted -= MINIMUM_LIQUIDITY;
             cachedPairInfo.timestamp = uint32(block.timestamp);
         } else {
             uint256 liquidityFromA = (amountA * cachedPairInfo.totalLiquidity) /
@@ -151,6 +159,8 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         );
     }
 
+    // If the user withdraws all liquidity, they also receive any extra token "dust" or airdropped tokens.
+    // This mirrors Uniswap V2 behavior.
     function withdraw(
         address tokenA,
         address tokenB,
@@ -180,6 +190,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         address[2] memory tokens = pairKeyToTokens[pairKey];
 
         if (liquidityToWithdraw == cachedPairInfo.totalLiquidity) {
+            // If user withdraws all liquidity, send all contract balances.
             withdrawnAmountA = IERC20(tokens[0]).balanceOf(address(this));
             withdrawnAmountB = IERC20(tokens[1]).balanceOf(address(this));
             cachedPairInfo.reserveA = 0;
@@ -259,6 +270,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         
         if (amountIn == 0) revert InsufficientAmounts();
 
+        // Standard x*y=k AMM formula with fee applied on input amount.
         uint256 amountInWithFee = amountIn * (FEE_DENOMINATOR - swapFee);
 
         uint256 reserveIn = inputToken == token0 ? reserveA : reserveB;
@@ -278,6 +290,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         if (inputToken == token0) {
             uint256 newReserveB = balanceB - amountOut;
             require(amountOut <= balanceB, "AmountOut exceeds reserveB");
+            // Ensure reserves never overflow uint112 and amounts are not greater than available balances.
             require(newReserveB <= type(uint112).max, "ReserveB overflow");
             require(balanceA <= type(uint112).max, "ReserveA overflow");
             pair.reserveA = uint112(balanceA);
@@ -386,6 +399,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         return numerator / denominator;
     }
 
+    // NOTE: Forwarding fee goes to the contract owner (centralized for now). For production, switch to DAO or fee-split.
     function _forwardToUniswap(
         address inputToken,
         address outputToken,
@@ -401,6 +415,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         uint256 fee = (inputAmount * FORWARD_FEE_NUMERATOR) /
             FORWARD_FEE_DENOMINATOR;
         uint256 netInputAmount = inputAmount - fee;
+        // Protocol fee for Uniswap fallback swaps is sent to the contract owner.
         IERC20(inputToken).safeTransfer(owner(), fee);
         IERC20 token = IERC20(inputToken);
         token.approve(address(router), netInputAmount);
@@ -459,6 +474,7 @@ contract SwapeoDEX is ReentrancyGuard, Ownable, ISwapeoDEX {
         return keccak256(abi.encodePacked(token0, token1));
     }
 
+    // Sort tokens by address to ensure consistent ordering for pair key generation and storage.
     function _sortTokens(
         address tokenA,
         address tokenB

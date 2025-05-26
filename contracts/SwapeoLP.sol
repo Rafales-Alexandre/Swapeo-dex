@@ -16,6 +16,7 @@ contract SwapeoLP is ERC20 {
     }
 
     function mint(address to, uint256 amount) external onlyDEX {
+        //to lock MINIMUM_LIQUIDITY, we use a dead address in the DEX (ex: 0x000...dEaD)
         _mint(to, amount);
     }
 

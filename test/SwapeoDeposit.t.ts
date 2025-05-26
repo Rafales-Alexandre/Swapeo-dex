@@ -265,7 +265,7 @@ describe("SwapeoDeposit", function () {
       await swapeo.deposit(tokenA.target, tokenB.target, amountA, amountB);
   
       const pairKey = await swapeo.getKey(tokenA.target, tokenB.target);
-      const pair = await swapeo.s_pairKeyToPairInfo(pairKey);
+      const pair = await swapeo.pairKeyToPairInfo(pairKey);
   
       expect(pair.totalLiquidity).to.be.lt(ethers.parseEther("10"));
     });
@@ -347,6 +347,29 @@ describe("SwapeoDeposit", function () {
       await expect(
         swapeo.deposit(token6.target, tokenA.target, 1_000_000_000, ethers.parseEther("10"))
       ).to.emit(swapeo, "Deposit");
+    });
+
+    it("locks MINIMUM_LIQUIDITY to address(0) on first deposit", async function () {
+      const amountA = ethers.parseEther("10");
+      const amountB = ethers.parseEther("10");
+    
+      await tokenA.approve(swapeo.target, amountA);
+      await tokenB.approve(swapeo.target, amountB);
+      await swapeo.deposit(tokenA.target, tokenB.target, amountA, amountB);
+    
+      const pairKey = await swapeo.getKey(tokenA.target, tokenB.target);
+      const lpTokenAddress = await swapeo.pairKeyToLPToken(pairKey);
+      const lpToken = await ethers.getContractAt("SwapeoLP", lpTokenAddress);
+    
+      const MINIMUM_LIQUIDITY = 1n;
+    
+      const DEAD_ADDRESS = "0x000000000000000000000000000000000000dEaD";
+
+expect(await lpToken.balanceOf(DEAD_ADDRESS)).to.equal(MINIMUM_LIQUIDITY);
+    
+      const ownerBalance = await lpToken.balanceOf(ownerAddress);
+      const totalSupply = await lpToken.totalSupply();
+      expect(ownerBalance + MINIMUM_LIQUIDITY).to.equal(totalSupply);
     });
   });
   
