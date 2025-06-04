@@ -110,7 +110,7 @@ contract SwapeoDEX is Ownable, ISwapeoDEX, SwapeoModifiers {
         address tokenA,
         address tokenB,
         uint256 liquidityToWithdraw
-    ) external notIdenticalTokens(tokenA, tokenB) validTokenPair(tokenA, tokenB) {
+    ) external validTokenPair(tokenA, tokenB) {
         bytes32 pairKey = _generatePairKey(tokenA, tokenB);
         PairInfo storage pair = pairKeyToPairInfo[pairKey];
 
@@ -305,8 +305,8 @@ contract SwapeoDEX is Ownable, ISwapeoDEX, SwapeoModifiers {
         uint256 fee = (inputAmount * swapFee) / FEE_DENOMINATOR;
         uint256 netInputAmount = inputAmount - fee;
         IERC20(inputToken).safeTransfer(owner(), fee);
-        IERC20 token = IERC20(inputToken);
-        token.approve(address(router), netInputAmount);
+        
+        IERC20(inputToken).approve(address(router), netInputAmount);
 
         address[] memory path = new address[](2);
         path[0] = inputToken;
