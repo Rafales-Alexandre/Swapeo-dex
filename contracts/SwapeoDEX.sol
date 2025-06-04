@@ -9,12 +9,9 @@ import "./interfaces/IUniswapV2Router02.sol";
 import "./interfaces/ISwapeoDEX.sol";
 import "./SwapeoLP.sol";
 import "./libraries/SwapeoErrors.sol";
+import { SwapeoModifiers } from "./libraries/SwapeoModifiers.sol";
 
-/**
- * @title SwapeoDEXNoGuard
- * @notice Version sans ReentrancyGuard pour les tests de gaz
- */
-contract SwapeoDEX is Ownable, ISwapeoDEX {
+contract SwapeoDEX is Ownable, ISwapeoDEX, SwapeoModifiers {
     using SafeERC20 for IERC20;
 
     struct PairInfo {
@@ -33,28 +30,6 @@ contract SwapeoDEX is Ownable, ISwapeoDEX {
     mapping(bytes32 => address[2]) private pairKeyToTokens;
 
     IUniswapV2Router02 public immutable router;
-
-    modifier validTokenPair(address tokenA, address tokenB) {
-        if (tokenA == address(0) || tokenB == address(0)) revert ZeroAddress();
-        if (tokenA == tokenB) revert IdenticalTokens();
-        _;
-    }
-
-    modifier nonZeroAmount(uint256 amount) {
-        if (amount == 0) revert InsufficientAmounts();
-        _;
-    }
-
-    modifier validSwapTokens(address inputToken, address outputToken) {
-        if (inputToken == address(0) || outputToken == address(0)) revert ZeroAddress();
-        if (inputToken == outputToken) revert IdenticalTokens();
-        _;
-    }
-
-    modifier notIdenticalTokens(address tokenA, address tokenB) {
-        if (tokenA == tokenB) revert IdenticalTokens();
-        _;
-    }
 
     constructor(
         address _routerAddress,
