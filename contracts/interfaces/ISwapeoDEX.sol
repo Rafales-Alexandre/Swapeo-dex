@@ -47,7 +47,7 @@ interface ISwapeoDEX {
         address outputToken,
         uint256 inputAmount,
         uint256 minOutputAmount
-    ) external returns (uint256);
+    ) external;
 
     function getAmountOut(
         uint256 amountIn,
@@ -83,7 +83,7 @@ interface ISwapeoDEX {
     )
         external
         view
-        returns (uint112 reserveA, uint112 reserveB, uint32 timestamp);
+        returns (uint112 reserveA, uint112 reserveB);
 
     function setSwapFee(uint16 _newSwapFee) external;
 }

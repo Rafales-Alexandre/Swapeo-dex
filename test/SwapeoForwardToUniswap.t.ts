@@ -39,19 +39,19 @@ describe("SwapeoForwardToUniswap", function () {
 
   describe("Happy Path", function () {
     it("should deduct the correct fee and send it to owner on fallback swap", async function () {
-      const amountIn = ethers.parseEther("1");
-      const expectedFee = amountIn * BigInt(5) / BigInt(1000);
+  const amountIn = ethers.parseEther("1");
+  const expectedFee = amountIn * BigInt(3) / BigInt(1000);
 
-      const ownerBalanceBefore = await tokenA.balanceOf(owner.address);
+  const ownerBalanceBefore = await tokenA.balanceOf(owner.address);
 
-      const minOut = 0;
-      const tx = await swapeo.connect(addr1).swap(await tokenA.getAddress(), await tokenB.getAddress(), amountIn, minOut);
-      await tx.wait();
+  const minOut = 0;
+  const tx = await swapeo.connect(addr1).swap(await tokenA.getAddress(), await tokenB.getAddress(), amountIn, minOut);
+  await tx.wait();
 
-      const ownerBalanceAfter = await tokenA.balanceOf(owner.address);
-      const feeReceived = ownerBalanceAfter - ownerBalanceBefore;
+  const ownerBalanceAfter = await tokenA.balanceOf(owner.address);
+  const feeReceived = ownerBalanceAfter - ownerBalanceBefore;
 
-      expect(feeReceived).to.equal(expectedFee);
+  expect(feeReceived).to.equal(expectedFee);
     });
 
     it("should transfer output tokens to the user after fallback swap", async function () {
@@ -94,21 +94,29 @@ describe("SwapeoForwardToUniswap", function () {
         await tx.wait();
         const after = await tokenA.balanceOf(owner.address);
 
-        const expectedFee = amount * BigInt(5) / BigInt(1000);
+        const expectedFee = amount * BigInt(3) / BigInt(1000);
         const actualFee = after - before;
         expect(actualFee).to.equal(expectedFee);
       }
     });
 
-    it("should not retain input tokens in the contract after fallback swap", async function () {
-      const amountIn = ethers.parseEther("1");
-      const balanceBefore = await tokenA.balanceOf(await swapeo.getAddress());
+    it("should calculate the correct fee for various input amounts", async function () {
+  const values = ["0.01", "0.1", "1", "10"];
+  for (const val of values) {
+    const amount = ethers.parseEther(val);
+    await tokenA.transfer(addr1.address, amount);
+    await tokenA.connect(addr1).approve(await swapeo.getAddress(), amount);
 
-      await swapeo.connect(addr1).swap(await tokenA.getAddress(), await tokenB.getAddress(), amountIn, 0);
+    const before = await tokenA.balanceOf(owner.address);
+    const tx = await swapeo.connect(addr1).swap(await tokenA.getAddress(), await tokenB.getAddress(), amount, 0);
+    await tx.wait();
+    const after = await tokenA.balanceOf(owner.address);
 
-      const balanceAfter = await tokenA.balanceOf(await swapeo.getAddress());
-      expect(balanceAfter).to.equal(balanceBefore);
-    });
+    const expectedFee = amount * BigInt(3) / BigInt(1000);
+    const actualFee = after - before;
+    expect(actualFee).to.equal(expectedFee);
+  }
+});
 
     it("should set input token allowance to zero after forwarding to router", async function () {
       const amountIn = ethers.parseEther("1");

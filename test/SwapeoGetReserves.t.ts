@@ -65,59 +65,24 @@ describe("SwapeoGetReserves", function () {
       expect(r1A).to.equal(r2A);
       expect(r1B).to.equal(r2B);
     });
-
-    it("should update timestamp after a swap", async function () {
-      const [, , timestampBefore] = await swapeo.getReserves(
-        await tokenA.getAddress(),
-        await tokenB.getAddress()
-      );
-
-      await tokenA.transfer(addr1.address, ethers.parseEther("10"));
-      await tokenA.connect(addr1).approve(
-        await swapeo.getAddress(),
-        ethers.parseEther("10")
-      );
-      const amountIn = ethers.parseEther("1");
-      const minOut = await swapeo.getAmountOut(
-        amountIn,
-        await tokenA.getAddress(),
-        await tokenB.getAddress()
-      );
-      await swapeo
-        .connect(addr1)
-        .swap(
-          await tokenA.getAddress(),
-          await tokenB.getAddress(),
-          amountIn,
-          minOut - minOut / 100n
-        );
-
-      const [, , timestampAfter] = await swapeo.getReserves(
-        await tokenA.getAddress(),
-        await tokenB.getAddress()
-      );
-      expect(timestampAfter).to.be.gte(timestampBefore);
-    });
   });
 
   describe("UnhappyPath", function () {
-    it("should revert for same token as both pair sides", async function () {
-      await expect(
-        swapeo.getReserves(
-          await tokenA.getAddress(),
-          await tokenA.getAddress()
-        )
-      ).to.be.revertedWithCustomError(swapeo, "IdenticalTokens");
-    });
+    it("should return zeros for same token as both pair sides", async function () {
+  const [reserveA, reserveB] =
+    await swapeo.getReserves(await tokenA.getAddress(), await tokenA.getAddress());
 
-    it("should revert for ZeroAddress as one token", async function () {
-      await expect(
-        swapeo.getReserves(
-          ethers.ZeroAddress,
-          await tokenA.getAddress()
-        )
-      ).to.be.revertedWithCustomError(swapeo, "ZeroAddress");
-    });
+  expect(reserveA).to.equal(0);
+  expect(reserveB).to.equal(0);
+});
+
+    it("should return zeros for ZeroAddress as one token", async function () {
+  const [reserveA, reserveB] =
+    await swapeo.getReserves(ethers.ZeroAddress, await tokenA.getAddress());
+
+  expect(reserveA).to.equal(0);
+  expect(reserveB).to.equal(0);
+});
     
 
     it("should return zero for a non-existent pair", async function () {

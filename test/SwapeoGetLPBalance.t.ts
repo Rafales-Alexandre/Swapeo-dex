@@ -65,10 +65,11 @@ describe("SwapeoGetLPBalance", function () {
   });
 
   describe("UnhappyPath", function () {
-    it("should return zero for same token as both pair sides", async function () {
-      const balance = await swapeo.getLPBalance(owner.address, await tokenA.getAddress(), await tokenA.getAddress());
-      expect(balance).to.equal(0);
-    });
+    it("should revert for same token as both pair sides", async function () {
+  await expect(
+    swapeo.getLPBalance(owner.address, await tokenA.getAddress(), await tokenA.getAddress())
+  ).to.be.revertedWithCustomError(swapeo, "IdenticalTokens");
+});
 
     it("should return zero for a non-existent pair", async function () {
       const balance = await swapeo.getLPBalance(owner.address, await tokenA.getAddress(), await tokenC.getAddress());
